@@ -77,7 +77,7 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 		return nil
 	}
 
-	repairPass := (snapshotMismatch || noSnapshot) && !forceTasks
+	repairPass := noSnapshot && !forceTasks
 	if forceTasks && snapshotMismatch {
 		// If we're being asked to refresh a specific task, we still must not "paper over"
 		// unrelated external ref changes by blindly updating the snapshot.
@@ -124,16 +124,74 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 				targetTasks = append(targetTasks, t)
 			}
 		}
-	} else {
-		// Snapshot mismatch triggered by list/show: repair pass.
-		for _, t := range tasks {
-			if t.taskStatus == task.TaskStatusMerged {
-				continue
+	} else if snapshotMismatch {
+		prevRefs, ok := parseRefsSnapshotJSON(prevSnap.JSON)
+		if !ok {
+			repairPass = true
+			for _, t := range tasks {
+				if t.taskStatus == task.TaskStatusMerged {
+					continue
+				}
+				targetTasks = append(targetTasks, t)
 			}
-			if strings.TrimSpace(t.integrated) != "" {
-				continue
+		} else {
+			// Snapshot changed: only recompute tasks whose relevant refs changed.
+			//
+			// - task branch head changed -> recompute that task.
+			// - base branch (local or origin) changed -> recompute all tasks using that base.
+			changedTaskNames := make(map[string]struct{})
+			changedBaseBranches := make(map[string]struct{})
+
+			for _, ref := range desiredRefs {
+				prev := strings.TrimSpace(prevRefs[ref])
+				next := strings.TrimSpace(nextSnap.Refs[ref])
+				if prev == next {
+					continue
+				}
+
+				if strings.HasPrefix(ref, "refs/heads/") {
+					name := strings.TrimPrefix(ref, "refs/heads/")
+					if strings.TrimSpace(name) != "" {
+						changedTaskNames[name] = struct{}{}
+						changedBaseBranches[name] = struct{}{}
+					}
+					continue
+				}
+				if strings.HasPrefix(ref, "refs/remotes/origin/") {
+					base := strings.TrimPrefix(ref, "refs/remotes/origin/")
+					if strings.TrimSpace(base) != "" {
+						changedBaseBranches[base] = struct{}{}
+					}
+					continue
+				}
 			}
-			targetTasks = append(targetTasks, t)
+
+			seen := make(map[string]struct{})
+			for _, t := range tasks {
+				if t.taskStatus == task.TaskStatusMerged {
+					continue
+				}
+
+				_, taskChanged := changedTaskNames[t.name]
+				base := strings.TrimSpace(t.baseBranch)
+				_, baseChanged := changedBaseBranches[base]
+
+				if !taskChanged && !baseChanged {
+					continue
+				}
+				if _, ok := seen[t.name]; ok {
+					continue
+				}
+				seen[t.name] = struct{}{}
+				targetTasks = append(targetTasks, t)
+			}
+
+			// The snapshot may include refs for tasks that no longer exist in the DB
+			// (e.g. after deleting a task). In that case there can be no target tasks.
+			// Still persist the updated snapshot so list/show stays fast.
+			if len(targetTasks) == 0 {
+				return i.persistSnapshotOnly(ctx, nextSnap)
+			}
 		}
 	}
 
@@ -144,9 +202,9 @@ func (i *Index) refreshIntegration(ctx context.Context, p GitPolicy) error {
 		treeSHA string
 	}
 	targetByBase := make(map[string]targetInfo)
-	baseBranches := make([]string, 0, len(tasks))
+	baseBranches := make([]string, 0, len(targetTasks))
 	seenBase := make(map[string]struct{})
-	for _, t := range tasks {
+	for _, t := range targetTasks {
 		b := strings.TrimSpace(t.baseBranch)
 		if b == "" {
 			continue

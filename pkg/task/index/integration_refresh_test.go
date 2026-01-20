@@ -3,6 +3,7 @@ package index_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +26,50 @@ func gitOut(t *testing.T, dir string, args ...string) string {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git %v failed: %s", args, out)
 	return strings.TrimSpace(string(out))
+}
+
+func withGitSubcommandSpy(t *testing.T, fn func()) map[string]int {
+	t.Helper()
+
+	realGit, err := exec.LookPath("git")
+	require.NoError(t, err)
+
+	tmp := t.TempDir()
+	logPath := filepath.Join(tmp, "git-subcommands.log")
+	wrapperPath := filepath.Join(tmp, "git")
+
+	script := fmt.Sprintf(`#!/bin/sh
+cmd="$1"
+shift
+case "$cmd" in
+  merge-base|merge-tree)
+    echo "$cmd" >> %q
+    ;;
+esac
+exec %q "$cmd" "$@"
+`, logPath, realGit)
+	require.NoError(t, os.WriteFile(wrapperPath, []byte(script), 0o755))
+
+	oldPath := os.Getenv("PATH")
+	require.NoError(t, os.Setenv("PATH", tmp+string(os.PathListSeparator)+oldPath))
+	defer func() { _ = os.Setenv("PATH", oldPath) }()
+
+	fn()
+
+	data, err := os.ReadFile(logPath)
+	if err != nil && !os.IsNotExist(err) {
+		require.NoError(t, err)
+	}
+
+	out := make(map[string]int)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		out[line]++
+	}
+	return out
 }
 
 func TestIndex_IntegrationRefresh_Ancestor(t *testing.T) {
@@ -100,6 +145,63 @@ func TestIndex_IntegrationRefresh_Squash(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, string(git.IntegratedMergeAddsNothing), strings.TrimSpace(rec.IntegratedReason))
+}
+
+func TestIndex_IntegrationRefresh_SnapshotMismatch_RecomputesChangedTaskOnly(t *testing.T) {
+	env := testutil.NewTestEnv(t, 1)
+	ctx := context.Background()
+
+	a := "idx/changed-a"
+	b := "idx/changed-b"
+	env.CreateTask(a, "A", "main", "desc")
+	env.CreateTask(b, "B", "main", "desc")
+	env.CreateTaskHistory(a, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}})
+	env.CreateTaskHistory(b, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}})
+
+	ws := env.Workspaces[0]
+
+	// Create and merge A.
+	gitOut(t, ws, "checkout", "-b", a)
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "a.txt"), []byte("a\n"), 0o644))
+	gitOut(t, ws, "add", "a.txt")
+	gitOut(t, ws, "commit", "-m", "a1")
+	gitOut(t, env.RootDir, "checkout", "main")
+	gitOut(t, env.RootDir, "merge", "--no-ff", a, "-m", "Merge "+a)
+
+	// Create and merge B.
+	gitOut(t, ws, "checkout", "--detach")
+	gitOut(t, ws, "checkout", "-b", b)
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "b.txt"), []byte("b\n"), 0o644))
+	gitOut(t, ws, "add", "b.txt")
+	gitOut(t, ws, "commit", "-m", "b1")
+	gitOut(t, env.RootDir, "checkout", "main")
+	gitOut(t, env.RootDir, "merge", "--no-ff", b, "-m", "Merge "+b)
+
+	idx, err := taskindex.OpenDefault()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = idx.Close() })
+
+	// Prime snapshot.
+	require.NoError(t, idx.Refresh(ctx, taskindex.RefreshPolicy{
+		Git: taskindex.GitPolicy{Mode: taskindex.GitOpenOnly, IncludeIntegration: true},
+	}))
+
+	// Move only A (not integrated anymore).
+	gitOut(t, ws, "checkout", a)
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "a.txt"), []byte("a2\n"), 0o644))
+	gitOut(t, ws, "add", "a.txt")
+	gitOut(t, ws, "commit", "-m", "a2")
+
+	counts := withGitSubcommandSpy(t, func() {
+		require.NoError(t, idx.Refresh(ctx, taskindex.RefreshPolicy{
+			Git: taskindex.GitPolicy{Mode: taskindex.GitOpenOnly, IncludeIntegration: true},
+		}))
+	})
+
+	// Only A should be recomputed (B is unaffected), so we expect a single per-task
+	// ancestor check and a single merge-tree check for the non-ancestor case.
+	require.Equal(t, 1, counts["merge-base"])
+	require.Equal(t, 1, counts["merge-tree"])
 }
 
 func TestIndex_IntegrationForceTasks_DoesNotHideUnrelatedRefChanges(t *testing.T) {
