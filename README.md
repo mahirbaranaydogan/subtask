@@ -85,7 +85,7 @@ go install github.com/zippoxer/subtask/cmd/subtask@latest
 subtask install
 ```
 
-*Tip: This will recommend to install the optional plugin as well, to remind Claude to use the skill.*
+*Tip: This will recommend to install the optional plugin as well, to remind Claude to use the skill when it uses the CLI.*
 
 Restart Claude Code.
 
