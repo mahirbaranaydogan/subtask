@@ -407,6 +407,18 @@ func (i *Index) promoteClosedTasksToMerged(updates []integrationUpdate, now time
 			if tail.TaskStatus != task.TaskStatusClosed {
 				return nil
 			}
+			// Guardrail: don't auto-promote "merged" if the last worker run is still in-flight
+			// (or was killed mid-run without a worker.finished event).
+			if !tail.RunningSince.IsZero() {
+				return nil
+			}
+
+			// Guardrail: if the task branch never advanced beyond the recorded base commit,
+			// treat it as "no commits" and don't mark as merged via detection.
+			if tail.BaseCommit != "" && u.branchHead.Valid &&
+				strings.TrimSpace(u.branchHead.String) == strings.TrimSpace(tail.BaseCommit) {
+				return nil
+			}
 
 			data, _ := json.Marshal(map[string]any{
 				"commit":            strings.TrimSpace(u.targetHead.String),
