@@ -1,8 +1,13 @@
 # Subtask ✨
 
-Subtask lets Claude Code draft your tasks, spawn subagents, track progress, review code and request changes.
+Subtask gives Claude Code a Skill and CLI to create tasks, spawn subagents, track progress, review code and request changes.
 
-Codex subagents are supported and recommended.
+* Each task gets a Git worktree, so they can be **done in parallel** safely
+* **Claude can interrupt and talk with subagents**!
+* TUI shows progress, diffs & conversations
+* Tasks are persisted in folders
+* Codex subagents supported
+* Ralph not needed
 
 ### Spawning Tasks
 ```makefile
