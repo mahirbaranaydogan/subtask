@@ -14,6 +14,7 @@ Subtask gives Claude Code a Skill and CLI to create tasks, spawn subagents, trac
 You: fix the auth bug and add API metrics with Subtask
 
 Claude:
+  ├─► Skill(Subtask)
   ├─► Bash(subtask draft fix/auth-bug ...)
   ├─► Bash(subtask draft feat/api-metrics ...)
   └─⏺ Tasks are in progress! I'll get notified when they're done.
