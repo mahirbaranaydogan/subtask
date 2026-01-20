@@ -118,7 +118,7 @@ Examples:
 - "plan and implement the new API endpoint with Subtask"
 
 What happens next:
-1. Claude Code drafts tasks and runs them in isolated Git worktrees.<br/>
+1. Claude Code creates tasks and runs subagents to do them simultaneously.<br/>
 2. Claude gets notified when they're done, and reviews the code.<br/>
 3. Claude asks if you want to merge, or ask for changes.
 
