@@ -16,8 +16,8 @@ var (
 type CLI struct {
 	Version kong.VersionFlag `help:"Print version information and quit"`
 
-	Init      InitCmd      `cmd:"" help:"Initialize subtask for this project"`
-	Install   InstallCmd   `cmd:"" help:"Install Subtask skill + plugin (Claude Code)"`
+	Install   InstallCmd   `cmd:"" help:"Install Subtask skill + plugin (Claude Code) and configure defaults"`
+	Config    ConfigCmd    `cmd:"" help:"Edit configuration (user defaults or project overrides)"`
 	Uninstall UninstallCmd `cmd:"" help:"Uninstall Subtask skill + plugin (Claude Code)"`
 	Status    StatusCmd    `cmd:"" help:"Show installation status (skill + plugin)"`
 	Ask       AskCmd       `cmd:"" help:"Ask a question (no task, runs in cwd)"`

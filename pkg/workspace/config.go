@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/zippoxer/subtask/pkg/subtaskerr"
 	"github.com/zippoxer/subtask/pkg/task"
 )
 
@@ -28,32 +29,38 @@ type Entry struct {
 	ID   int    // e.g., 1
 }
 
-// LoadConfig loads the project config from .subtask/config.json.
+// LoadConfig loads the effective config (global defaults + optional project overrides).
 func LoadConfig() (*Config, error) {
-	data, err := os.ReadFile(task.ConfigPath())
+	userPath := task.ConfigPath()
+	user, userExists, err := loadConfigFile(userPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("not initialized\n\nRun 'subtask init' first")
-		}
-		return nil, err
+		return nil, fmt.Errorf("subtask: invalid config at %s\n\nFix it with:\n  subtask config --user", userPath)
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("invalid config: %w", err)
+	// Best-effort project override discovery (requires git; ignored if not in git).
+	var project *Config
+	var projectPath string
+	if root, err := task.GitRootAbs(); err == nil && strings.TrimSpace(root) != "" {
+		projectPath = filepath.Join(root, ".subtask", "config.json")
+		project, _, err = loadConfigFile(projectPath)
+		if err != nil {
+			return nil, fmt.Errorf("subtask: invalid project config at %s\n\nFix it with:\n  subtask config --project", projectPath)
+		}
 	}
-	if cfg.MaxWorkspaces <= 0 {
-		cfg.MaxWorkspaces = DefaultMaxWorkspaces
+
+	if !userExists || user == nil {
+		return nil, subtaskerr.ErrNotConfigured
 	}
-	return &cfg, nil
+
+	effective := mergeConfig(user, project)
+	if effective.MaxWorkspaces <= 0 {
+		effective.MaxWorkspaces = DefaultMaxWorkspaces
+	}
+	return effective, nil
 }
 
-// Save writes the config to .subtask/config.json.
-func (c *Config) Save() error {
-	if err := os.MkdirAll(task.ProjectDir(), 0755); err != nil {
-		return err
-	}
-
+// SaveTo writes the config to a specific path.
+func (c *Config) SaveTo(path string) error {
 	if c.MaxWorkspaces <= 0 {
 		c.MaxWorkspaces = DefaultMaxWorkspaces
 	}
@@ -62,7 +69,15 @@ func (c *Config) Save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(task.ConfigPath(), data, 0644)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o644)
+}
+
+// Save writes the config to the global defaults path (~/.subtask/config.json).
+func (c *Config) Save() error {
+	return c.SaveTo(task.ConfigPath())
 }
 
 // ListWorkspaces discovers workspaces for the current project by globbing.
@@ -97,4 +112,48 @@ func ListWorkspaces() ([]Entry, error) {
 	})
 
 	return entries, nil
+}
+
+func mergeConfig(user, project *Config) *Config {
+	out := &Config{
+		Harness:       strings.TrimSpace(user.Harness),
+		MaxWorkspaces: user.MaxWorkspaces,
+		Options:       make(map[string]any),
+	}
+	for k, v := range user.Options {
+		out.Options[k] = v
+	}
+	if project == nil {
+		return out
+	}
+
+	if strings.TrimSpace(project.Harness) != "" {
+		out.Harness = strings.TrimSpace(project.Harness)
+	}
+	if project.MaxWorkspaces > 0 {
+		out.MaxWorkspaces = project.MaxWorkspaces
+	}
+	for k, v := range project.Options {
+		out.Options[k] = v
+	}
+	return out
+}
+
+func loadConfigFile(path string) (*Config, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, true, err
+	}
+	if cfg.Options == nil {
+		cfg.Options = make(map[string]any)
+	}
+	return &cfg, true, nil
 }

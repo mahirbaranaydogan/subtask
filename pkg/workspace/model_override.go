@@ -28,7 +28,7 @@ func ValidateReasoningFlag(harnessName, reasoning string) error {
 		return nil
 	}
 	if strings.TrimSpace(harnessName) != "codex" {
-		return fmt.Errorf("reasoning is codex-only\n\nRemove --reasoning, or switch your project harness to codex in %s", task.ConfigPath())
+		return fmt.Errorf("reasoning is codex-only\n\nRemove --reasoning, or switch your harness to codex with:\n  subtask config --user\nor (repo-only):\n  subtask config --project")
 	}
 	return ValidateReasoningLevel(reasoning)
 }

@@ -13,6 +13,10 @@ type WorkspaceCmd struct {
 
 // Run executes the workspace command.
 func (c *WorkspaceCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	ws, err := workspace.ForTask(c.Task)
 	if err != nil {
 		return err

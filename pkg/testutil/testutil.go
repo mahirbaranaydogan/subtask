@@ -27,19 +27,21 @@ type TestEnv struct {
 func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 	t.Helper()
 
-	// Create temp root
-	root, err := os.MkdirTemp("", "subtask-test-*")
-	if err != nil {
-		t.Fatalf("failed to create temp dir: %v", err)
-	}
+	origSubtaskDir := os.Getenv("SUBTASK_DIR")
+	requireSetEnv(t, "SUBTASK_DIR", t.TempDir())
+	t.Cleanup(func() {
+		_ = os.Setenv("SUBTASK_DIR", origSubtaskDir)
+	})
+
+	// Create temp root (git repo)
+	root := t.TempDir()
 
 	// Initialize as git repo
 	initGitRepo(t, root)
 
-	// Create .subtask directory structure
+	// Create portable task dir (repo-local only)
 	subtaskDir := filepath.Join(root, ".subtask")
-	os.MkdirAll(filepath.Join(subtaskDir, "tasks"), 0755)
-	os.MkdirAll(filepath.Join(subtaskDir, "internal"), 0755)
+	_ = os.MkdirAll(filepath.Join(subtaskDir, "tasks"), 0o755)
 
 	// Create workspaces (git worktrees) using the standard naming convention
 	// so ListWorkspaces() can discover them
@@ -62,9 +64,10 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 			"model": "gpt-5.2",
 		},
 	}
-	cfgPath := filepath.Join(subtaskDir, "config.json")
+	cfgPath := task.ConfigPath()
 	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(cfgPath, cfgData, 0644)
+	_ = os.MkdirAll(filepath.Dir(cfgPath), 0o755)
+	_ = os.WriteFile(cfgPath, cfgData, 0o644)
 
 	// Save original cwd and change to test root
 	origCwd, _ := os.Getwd()
@@ -81,18 +84,16 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 
 	t.Cleanup(func() {
 		os.Chdir(origCwd)
-		// Remove all worktrees for this repo from the global workspaces directory
-		// (tests may create additional worktrees lazily).
-		escapedPath := task.EscapePath(root)
-		pattern := filepath.Join(task.WorkspacesDir(), escapedPath+"--*")
-		matches, _ := filepath.Glob(pattern)
-		for _, ws := range matches {
-			os.RemoveAll(ws)
-		}
-		os.RemoveAll(root)
 	})
 
 	return env
+}
+
+func requireSetEnv(t *testing.T, k, v string) {
+	t.Helper()
+	if err := os.Setenv(k, v); err != nil {
+		t.Fatalf("setenv %s: %v", k, err)
+	}
 }
 
 // CreateTask creates a task with TASK.md.

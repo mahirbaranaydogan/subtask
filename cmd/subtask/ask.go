@@ -38,7 +38,7 @@ func (c *AskCmd) Run() error {
 	// Load config for harness
 	cfg, err := workspace.LoadConfig()
 	if err != nil {
-		return fmt.Errorf("subtask not initialized\n\nRun: subtask init")
+		return err
 	}
 	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
 		return err

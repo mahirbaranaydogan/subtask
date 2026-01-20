@@ -1,39 +1,29 @@
 ---
-description: Initialize Subtask for this repository
+description: Install and configure Subtask
 ---
 
 # Setup Subtask
 
-Initialize Subtask for the current repository.
+Install Subtask (skill + plugin) and configure it for use in any Git repository.
 
-## Check available harnesses
-Check if `git` is installed and if we're inside a Git repository. If not, let user know that Subtask requires a Git repository and stop.
+## Requirements
+Check if `git` is installed and if we're inside a Git repository. If not, let the user know that Subtask requires a Git repository and stop.
 
-## Check available harnesses
-
-```bash
-codex --version
-claude --version
-```
-
-**Important:** The "worker harness" is the AI that will execute tasks in parallel workspaces - NOT you (Claude Code). You are the lead; the harness is your worker.
-
-## Ask the user which harness to use
-
-| Harness | Command | Notes |
-|---------|---------|-------|
-| **Codex CLI** | `codex` | Recommended - more reliable at autonomous multi-step tasks |
-| **Claude Code CLI** | `claude` | Good alternative if Codex isn't installed |
-
-If only Claude Code is available, use it. If both are available, ask user and recommend Codex.
-
-## Initialize
+## Install + configure (global)
 
 ```bash
-subtask init --harness <codex|claude> -n 20
+subtask install
 ```
 
-This creates `.subtask/config.json`. Workspaces are created on demand at `~/.subtask/workspaces/`.
+This runs a one-time install and configuration wizard and writes user defaults to `~/.subtask/config.json`.
+
+## Optional: project overrides
+
+```bash
+subtask config --project
+```
+
+Use this only if the current repository needs different settings than your global defaults.
 
 ## Done
 

@@ -21,6 +21,10 @@ type StageCmd struct {
 
 // Run executes the stage command.
 func (c *StageCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
 	}

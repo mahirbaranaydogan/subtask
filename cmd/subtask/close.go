@@ -14,6 +14,10 @@ type CloseCmd struct {
 
 // Run executes the close command.
 func (c *CloseCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	res, err := ops.CloseTask(c.Task, c.Abandon, cliOpsLogger{})
 	if err != nil {
 		return err

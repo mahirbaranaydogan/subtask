@@ -14,6 +14,9 @@ type ListCmd struct {
 
 // Run executes the list command.
 func (c *ListCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
 	out, err := c.render()
 	if err != nil {
 		return err

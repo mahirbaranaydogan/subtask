@@ -204,7 +204,7 @@ func TestIndex_CorruptDB_Rebuilds(t *testing.T) {
 	require.NoError(t, history.WriteAll(name, []history.Event{{Type: "task.opened", Data: mustJSON(map[string]any{"reason": "draft", "base_branch": "main"})}}))
 
 	// Write a corrupt "db".
-	require.NoError(t, os.WriteFile(filepath.Join(task.ProjectDir(), "index.db"), []byte("not a sqlite db"), 0o644))
+	require.NoError(t, os.WriteFile(task.IndexPath(), []byte("not a sqlite db"), 0o644))
 
 	idx, err := taskindex.OpenDefault()
 	require.NoError(t, err)
@@ -217,7 +217,7 @@ func TestIndex_CorruptDB_Rebuilds(t *testing.T) {
 	require.True(t, ok)
 
 	// Ensure the corrupt file was moved out of the way.
-	matches, err := filepath.Glob(filepath.Join(task.ProjectDir(), "index.db.corrupt-*"))
+	matches, err := filepath.Glob(task.IndexPath() + ".corrupt-*")
 	require.NoError(t, err)
 	require.NotEmpty(t, matches)
 }

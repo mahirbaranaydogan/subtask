@@ -20,6 +20,7 @@ func TestInterruptCLI_StopsRunningSend(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping interrupt CLI test in short mode")
 	}
+	t.Setenv("SUBTASK_DIR", t.TempDir())
 	if runtime.GOOS == "windows" {
 		t.Skip("skipping interrupt CLI test on Windows")
 	}
@@ -47,7 +48,7 @@ func TestInterruptCLI_StopsRunningSend(t *testing.T) {
 	require.NoError(t, sendCmd.Start())
 
 	// Wait until state shows the task is running.
-	statePath := filepath.Join(root, ".subtask", "internal", task.EscapeName(taskName), "state.json")
+	statePath := filepath.Join(task.ProjectsDir(), task.EscapePath(root), "internal", task.EscapeName(taskName), "state.json")
 	var runningState task.State
 	require.NoError(t, waitForState(t, statePath, func(s task.State) bool {
 		runningState = s

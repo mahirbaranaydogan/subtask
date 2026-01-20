@@ -1,0 +1,7 @@
+{"ts":"2026-01-20T21:45:08.996778Z","type":"task.opened","data":{"base_branch":"main","base_commit":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","base_ref":"main","branch":"legacy/open","follow_up":"","model":"","reason":"draft","reasoning":"","title":"Open","workflow":"default"}}
+{"ts":"2026-01-20T21:45:08.996778Z","type":"stage.changed","data":{"from":"","to":"doing"}}
+{"ts":"2026-01-20T21:45:09.032008Z","type":"message","role":"lead","content":"do"}
+{"ts":"2026-01-20T21:45:09.032008Z","type":"worker.started","data":{"prompt_bytes":2,"run_id":"7414dad635f72e69"}}
+{"ts":"2026-01-20T21:45:09.100878Z","type":"worker.session","data":{"action":"started","harness":"mock","session_id":"mock-session-1768945509097128000"}}
+{"ts":"2026-01-20T21:45:09.133955Z","type":"message","role":"worker","content":"Mock response for: # Task\nName: legacy/open\nTitle: Open\nBranch: legac"}
+{"ts":"2026-01-20T21:45:09.133955Z","type":"worker.finished","data":{"duration_ms":36,"outcome":"replied","run_id":"7414dad635f72e69","tool_calls":2}}

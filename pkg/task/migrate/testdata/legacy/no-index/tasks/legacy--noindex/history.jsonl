@@ -1,0 +1,7 @@
+{"ts":"2026-01-20T21:45:10.335238Z","type":"task.opened","data":{"base_branch":"main","base_commit":"f6ef258404c595f5ddff6acae5d380777d973845","base_ref":"main","branch":"legacy/noindex","follow_up":"","model":"","reason":"draft","reasoning":"","title":"NoIndex","workflow":"default"}}
+{"ts":"2026-01-20T21:45:10.335238Z","type":"stage.changed","data":{"from":"","to":"doing"}}
+{"ts":"2026-01-20T21:45:10.374236Z","type":"message","role":"lead","content":"do"}
+{"ts":"2026-01-20T21:45:10.374236Z","type":"worker.started","data":{"prompt_bytes":2,"run_id":"34e934f1f7389f05"}}
+{"ts":"2026-01-20T21:45:10.447918Z","type":"worker.session","data":{"action":"started","harness":"mock","session_id":"mock-session-1768945510442825000"}}
+{"ts":"2026-01-20T21:45:10.486278Z","type":"message","role":"worker","content":"Mock response for: # Task\nName: legacy/noindex\nTitle: NoIndex\nBranch:"}
+{"ts":"2026-01-20T21:45:10.486278Z","type":"worker.finished","data":{"duration_ms":43,"outcome":"replied","run_id":"34e934f1f7389f05","tool_calls":2}}

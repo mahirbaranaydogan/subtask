@@ -275,7 +275,7 @@ subtask list     # Non-interactive output (for scripts)
 subtask show X   # Non-interactive task details
 ```
 
-**First run**: If subtask is not initialized, prompts to run `subtask init`.
+**First run**: If subtask is not configured, it prints an error and exits. Run `subtask install` first.
 
 The bare `subtask` command (no subcommand) launches the TUI. Existing commands work for scripting.
 
@@ -314,7 +314,7 @@ tui/
 
 ### Data Flow
 
-1. **Init**: Check if initialized, load tasks, start refresh ticker
+1. **Init**: Validate git + config, load tasks, start refresh ticker
 2. **Tick**: Every 2s, fetch fresh data via existing task/git packages
 3. **Update**: Handle keys, mouse, tick messages
 4. **View**: Render based on current view and state

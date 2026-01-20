@@ -60,11 +60,13 @@ func (c *ReviewCmd) Run() error {
 		instructions = readStdinIfAvailable()
 	}
 
-	// Load config
-	cfg, err := workspace.LoadConfig()
+	// Requirements: git + global config (config may be migrated on first access).
+	res, err := preflightProject()
 	if err != nil {
 		return err
 	}
+	cfg := res.Config
+
 	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
 		return err
 	}

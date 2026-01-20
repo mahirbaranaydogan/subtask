@@ -19,6 +19,7 @@ func TestSendCLI_BasicFlowAndWorkingGuard(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping send CLI test in short mode")
 	}
+	t.Setenv("SUBTASK_DIR", t.TempDir())
 
 	binPath := buildSubtask(t)
 	mockWorkerPath := mockWorkerPathForSubtask(binPath)
@@ -67,7 +68,7 @@ func TestSendCLI_BasicFlowAndWorkingGuard(t *testing.T) {
 	assert.GreaterOrEqual(t, progress2.ToolCalls, progress.ToolCalls+3)
 
 	// Force "working" (non-stale) and verify send errors
-	statePath := filepath.Join(root, ".subtask", "internal", task.EscapeName(taskName), "state.json")
+	statePath := filepath.Join(task.ProjectsDir(), task.EscapePath(root), "internal", task.EscapeName(taskName), "state.json")
 	data, err := os.ReadFile(statePath)
 	require.NoError(t, err)
 	var s task.State

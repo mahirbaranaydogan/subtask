@@ -133,7 +133,8 @@ Task status is what users care about. Worker status is operational detail. Works
 
 | Command | Description |
 |---------|-------------|
-| `subtask init` | One-time setup: project config, workspace limit |
+| `subtask install` | One-time global install + configuration wizard |
+| `subtask config` | Edit user defaults or project overrides |
 | `subtask draft <task>` | Create a task without running it |
 | `subtask send <task>` | Send a message (starts or resumes task) |
 | `subtask stage <task> <stage>` | Advance workflow stage |
@@ -152,18 +153,20 @@ Task status is what users care about. Worker status is operational detail. Works
 ## Storage
 
 ```
-.subtask/                           # per-project, gitignored
-├── config.json                     # harness, model, workspace limit
-├── tasks/<name>/                   # task folder (portable, syncable)
-│   ├── TASK.md                     # description + schema version in frontmatter
-│   ├── PLAN.md                     # optional plan
-│   ├── PROGRESS.json               # worker progress tracking
-│   └── history.jsonl               # source of truth: messages + lifecycle events
-├── internal/<name>/                # runtime only (not portable)
-│   └── state.json                  # session ID, workspace path
-└── index.db                        # SQLite cache (rebuilt from history)
+~/.subtask/
+├── config.json                              # global defaults (from install/config)
+├── workspaces/<escaped-git-root>--<id>/     # worktrees (created on demand)
+└── projects/<escaped-git-root>/             # per-project runtime state (machine-local)
+    ├── internal/                            # session IDs, workspace assignments, locks
+    └── index.db                             # SQLite cache (rebuildable)
 
-~/.subtask/workspaces/              # global worktree pool (created on demand)
+<repo>/.subtask/
+├── config.json                              # optional per-project overrides
+└── tasks/<name>/                            # task folder (portable, syncable)
+    ├── TASK.md                              # description + schema version in frontmatter
+    ├── PLAN.md                              # optional plan
+    ├── PROGRESS.json                        # worker progress tracking
+    └── history.jsonl                        # source of truth: messages + lifecycle events
 ```
 
 ### Portability Contract

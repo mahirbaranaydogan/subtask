@@ -1,0 +1,2 @@
+{"ts":"2026-01-20T21:45:08.952776Z","type":"task.opened","data":{"base_branch":"main","base_commit":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","base_ref":"main","branch":"legacy/draftonly","follow_up":"","model":"","reason":"draft","reasoning":"","title":"DraftOnly","workflow":"default"}}
+{"ts":"2026-01-20T21:45:08.952776Z","type":"stage.changed","data":{"from":"","to":"doing"}}

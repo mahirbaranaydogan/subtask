@@ -26,7 +26,7 @@ func WithLock(taskName string, fn func() error) error {
 		return err
 	}
 	if err := filelock.LockExclusive(f); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	defer func() {

@@ -23,6 +23,10 @@ func (c *LogCmd) Run() error {
 		return fmt.Errorf("--events and --messages are mutually exclusive")
 	}
 
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
 	}

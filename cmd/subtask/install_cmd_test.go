@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -18,6 +19,13 @@ func TestInstallStatusUninstall_UserScope_NoPrompt(t *testing.T) {
 	prev, _ := os.Getwd()
 	require.NoError(t, os.Chdir(cwd))
 	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	// Ensure at least one harness is "available" so `subtask install --no-prompt`
+	// can write a usable ~/.subtask/config.json.
+	binDir := filepath.Join(cwd, "bin")
+	require.NoError(t, os.MkdirAll(binDir, 0o755))
+	_ = writeFakeCLI(t, binDir, "codex")
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	withOutputMode(t, false)
 	render.Pretty = false

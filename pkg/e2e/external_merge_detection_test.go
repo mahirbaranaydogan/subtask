@@ -21,7 +21,8 @@ import (
 func refsSnapshotHash(t *testing.T, root string) string {
 	t.Helper()
 
-	dbPath := filepath.Join(root, ".subtask", "index.db")
+	// Index is runtime-only state; it lives outside the repo in ~/.subtask/projects/<escaped-git-root>/index.db.
+	dbPath := filepath.Join(task.ProjectsDir(), task.EscapePath(root), "index.db")
 	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })

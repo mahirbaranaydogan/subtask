@@ -22,6 +22,9 @@ type ShowCmd struct {
 
 // Run executes the show command.
 func (c *ShowCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
 	if c.JSON {
 		if c.Watch {
 			return fmt.Errorf("--watch cannot be used with --json")

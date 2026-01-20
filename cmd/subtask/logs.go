@@ -35,6 +35,10 @@ type harnessLogBackend struct {
 
 // Run executes the logs command.
 func (c *LogsCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	backends := []harnessLogBackend{
 		{name: "codex", parser: &logs.CodexParser{}, locator: &logs.CodexParser{}, parseLine: parseSingleLineCodex},
 		{name: "claude", parser: &logs.ClaudeParser{}, locator: &logs.ClaudeParser{}, parseLine: parseSingleLineClaude},

@@ -16,6 +16,10 @@ type MergeCmd struct {
 
 // Run executes the merge command.
 func (c *MergeCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	res, err := ops.MergeTask(c.Task, c.Message, cliOpsLogger{})
 	if err != nil {
 		return err

@@ -58,7 +58,8 @@ func (p *Progress) Save(taskName string) error {
 
 // LoadProgress reads progress from .subtask/internal/<task>/progress.json.
 func LoadProgress(taskName string) (*Progress, error) {
-	data, err := os.ReadFile(progressPath(taskName))
+	path := progressPath(taskName)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

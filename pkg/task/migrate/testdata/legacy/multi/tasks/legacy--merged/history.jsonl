@@ -1,0 +1,8 @@
+{"ts":"2026-01-20T21:45:09.626343Z","type":"task.opened","data":{"base_branch":"main","base_commit":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","base_ref":"main","branch":"legacy/merged","follow_up":"","model":"","reason":"draft","reasoning":"","title":"Merged","workflow":"default"}}
+{"ts":"2026-01-20T21:45:09.626343Z","type":"stage.changed","data":{"from":"","to":"doing"}}
+{"ts":"2026-01-20T21:45:09.656736Z","type":"message","role":"lead","content":"do"}
+{"ts":"2026-01-20T21:45:09.656736Z","type":"worker.started","data":{"prompt_bytes":2,"run_id":"e3d7ddbb1cf43995"}}
+{"ts":"2026-01-20T21:45:09.696983Z","type":"worker.session","data":{"action":"started","harness":"mock","session_id":"mock-session-1768945509692126000"}}
+{"ts":"2026-01-20T21:45:09.733979Z","type":"message","role":"worker","content":"Mock response for: # Task\nName: legacy/merged\nTitle: Merged\nBranch: l"}
+{"ts":"2026-01-20T21:45:09.733979Z","type":"worker.finished","data":{"duration_ms":42,"outcome":"replied","run_id":"e3d7ddbb1cf43995","tool_calls":2}}
+{"ts":"2026-01-20T21:45:10.103147Z","type":"task.merged","data":{"branch":"legacy/merged","commit":"14e19e497de53c557bfd40197dd50344bbcada9c","into":"main","merge_base":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","trailers":{"Subtask-Task":"legacy/merged"}}}

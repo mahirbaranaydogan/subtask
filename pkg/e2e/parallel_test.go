@@ -24,6 +24,7 @@ func TestParallelCLI(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping parallel CLI test in short mode")
 	}
+	t.Setenv("SUBTASK_DIR", t.TempDir())
 
 	// Build the binary first
 	binPath := buildSubtask(t)
@@ -99,6 +100,7 @@ func TestParallelCLI_AllWorkspacesOccupied(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping parallel CLI test in short mode")
 	}
+	t.Setenv("SUBTASK_DIR", t.TempDir())
 
 	binPath := buildSubtask(t)
 	mockWorkerPath := mockWorkerPathForSubtask(binPath)
@@ -379,7 +381,7 @@ func mockPrompt(base string) string {
 
 func loadStateFromDir(root, taskName string) (*task.State, error) {
 	escaped := task.EscapeName(taskName)
-	path := filepath.Join(root, ".subtask", "internal", escaped, "state.json")
+	path := filepath.Join(task.ProjectsDir(), task.EscapePath(root), "internal", escaped, "state.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -393,7 +395,7 @@ func loadStateFromDir(root, taskName string) (*task.State, error) {
 
 func loadProgressFromDir(root, taskName string) (*task.Progress, error) {
 	escaped := task.EscapeName(taskName)
-	path := filepath.Join(root, ".subtask", "internal", escaped, "progress.json")
+	path := filepath.Join(task.ProjectsDir(), task.EscapePath(root), "internal", escaped, "progress.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err

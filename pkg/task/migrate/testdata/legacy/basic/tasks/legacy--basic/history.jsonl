@@ -1,0 +1,7 @@
+{"ts":"2026-01-20T21:45:08.55108Z","type":"task.opened","data":{"base_branch":"main","base_commit":"214cf94d51884866abbd4f05d93abef85723b304","base_ref":"main","branch":"legacy/basic","follow_up":"","model":"","reason":"draft","reasoning":"","title":"Basic","workflow":"default"}}
+{"ts":"2026-01-20T21:45:08.55108Z","type":"stage.changed","data":{"from":"","to":"doing"}}
+{"ts":"2026-01-20T21:45:08.586222Z","type":"message","role":"lead","content":"do"}
+{"ts":"2026-01-20T21:45:08.586222Z","type":"worker.started","data":{"prompt_bytes":2,"run_id":"7fbf0721d67cffd2"}}
+{"ts":"2026-01-20T21:45:08.661799Z","type":"worker.session","data":{"action":"started","harness":"mock","session_id":"mock-session-1768945508658093000"}}
+{"ts":"2026-01-20T21:45:08.695544Z","type":"message","role":"worker","content":"Mock response for: # Task\nName: legacy/basic\nTitle: Basic\nBranch: leg"}
+{"ts":"2026-01-20T21:45:08.695544Z","type":"worker.finished","data":{"duration_ms":38,"outcome":"replied","run_id":"7fbf0721d67cffd2","tool_calls":2}}

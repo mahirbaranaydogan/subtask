@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/zippoxer/subtask/pkg/git"
+	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
 	"github.com/zippoxer/subtask/pkg/testutil"
 
@@ -251,7 +252,7 @@ func TestIndex_IntegrationForceTasks_DoesNotHideUnrelatedRefChanges(t *testing.T
 		},
 	}))
 
-	db, err := sql.Open("sqlite", filepath.Join(env.RootDir, ".subtask", "index.db"))
+	db, err := sql.Open("sqlite", task.IndexPath())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 

@@ -38,6 +38,18 @@ func (s *State) Save(taskName string) error {
 		return err
 	}
 
+	return writeBytesAtomic(path, data)
+}
+
+func writeJSONAtomic(path string, v any) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return writeBytesAtomic(path, data)
+}
+
+func writeBytesAtomic(path string, data []byte) error {
 	// Write to temp file and rename for atomicity
 	tmpPath := path + ".tmp"
 	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
@@ -47,19 +59,19 @@ func (s *State) Save(taskName string) error {
 
 	if _, err := f.Write(data); err != nil {
 		f.Close()
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
 	// Sync to disk before releasing any locks
 	if err := f.Sync(); err != nil {
 		f.Close()
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return err
 	}
 
@@ -74,7 +86,8 @@ func LoadState(taskName string) (*State, error) {
 	if debug {
 		start = time.Now()
 	}
-	data, err := os.ReadFile(StatePath(taskName))
+	path := StatePath(taskName)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

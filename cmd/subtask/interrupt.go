@@ -17,6 +17,10 @@ type InterruptCmd struct {
 var interruptSignalFn = sendInterruptSignal
 
 func (c *InterruptCmd) Run() error {
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	// Ensure schema/history exist (one-time) and task exists.
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err

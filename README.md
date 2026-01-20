@@ -104,7 +104,7 @@ Restart Claude Code.
 
 In Claude Code, run `/subtask:setup`.
 
-*Tip: You can set it up manually with `subtask init`.*
+*Tip: You can set it up manually with `subtask install` (global defaults), then optionally add per-repo overrides with `subtask config --project`.*
 
 ## Use
 

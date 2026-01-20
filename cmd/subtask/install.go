@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/zippoxer/subtask/pkg/install"
+	"github.com/zippoxer/subtask/pkg/task"
 )
 
 // InstallCmd implements 'subtask install'.
@@ -29,7 +31,6 @@ func (c *InstallCmd) Run() error {
 		installPlugin = true
 	}
 
-	doInit := false
 	if !c.NoPrompt && !c.Skill && !c.Plugin {
 		installSkill = true
 		installPlugin = true
@@ -40,7 +41,7 @@ func (c *InstallCmd) Run() error {
 			}
 		}
 
-		baseDir, inGit, err := baseDirForScope(scope)
+		baseDir, _, err := baseDirForScope(scope)
 		if err != nil {
 			return err
 		}
@@ -63,9 +64,6 @@ func (c *InstallCmd) Run() error {
 			}
 			if step > 2 {
 				fmt.Printf("  Scope:  %s\n", scope)
-			}
-			if step > 3 && inGit {
-				fmt.Printf("  Init:   %s\n", yesNo(doInit))
 			}
 			if step > 0 {
 				fmt.Println()
@@ -95,17 +93,6 @@ func (c *InstallCmd) Run() error {
 						).
 						Value(&scope),
 				))
-			case 3:
-				if !inGit {
-					step++
-					continue
-				}
-				form = huh.NewForm(huh.NewGroup(
-					huh.NewConfirm().
-						Title("Initialize subtask for this repo?").
-						Description("Creates .subtask/config.json with defaults").
-						Value(&doInit),
-				))
 			default:
 				goto done
 			}
@@ -127,9 +114,9 @@ func (c *InstallCmd) Run() error {
 				break
 			}
 
-			// Recompute "inGit" if scope changes to project.
+			// Recompute base dir if scope changes.
 			if step == 2 {
-				baseDir, inGit, err = baseDirForScope(scope)
+				baseDir, _, err = baseDirForScope(scope)
 				if err != nil {
 					fmt.Print("\033[?1049l") // exit alternate buffer
 					return err
@@ -147,13 +134,6 @@ func (c *InstallCmd) Run() error {
 	baseDir, inGit, err := baseDirForScope(scope)
 	if err != nil {
 		return err
-	}
-
-	if doInit && scope == install.ScopeProject && inGit {
-		if err := initSubtaskDefaults(baseDir); err != nil {
-			return err
-		}
-		printSuccess("Initialized subtask for this repo")
 	}
 
 	res, err := install.InstallAll(install.InstallRequest{
@@ -183,6 +163,28 @@ func (c *InstallCmd) Run() error {
 		if res.Settings.Rewrote && res.Settings.BackupTo != "" {
 			printWarning(fmt.Sprintf("Rewrote malformed settings.json (backup at %s)", abbreviatePath(res.Settings.BackupTo)))
 		}
+	}
+
+	// If fully installed and not configured yet, run the config wizard and write ~/.subtask/config.json.
+	if installSkill && installPlugin {
+		if _, err := os.Stat(task.ConfigPath()); os.IsNotExist(err) {
+			cfg, _, err := runConfigWizard(configWizardParams{
+				WritePath: task.ConfigPath(),
+				Existing:  readConfigFileOrNil(task.ConfigPath()),
+				NoPrompt:  c.NoPrompt,
+			})
+			if err != nil {
+				return err
+			}
+			if cfg != nil {
+				printSuccess("Configured subtask")
+			}
+		}
+	}
+
+	// Best-effort: ignore portable subtask data in git repos.
+	if inGit {
+		_ = ensureGitignore(baseDir)
 	}
 
 	return nil

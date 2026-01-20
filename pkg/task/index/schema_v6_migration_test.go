@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,13 +11,15 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/testutil"
 )
 
 func TestMigrateToV6_RunningToWorking(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-	dbPath := filepath.Join(env.RootDir, ".subtask", "index.db")
+	_ = testutil.NewTestEnv(t, 0)
+	dbPath := task.IndexPath()
 
+	require.NoError(t, os.MkdirAll(filepath.Dir(dbPath), 0o755))
 	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
 

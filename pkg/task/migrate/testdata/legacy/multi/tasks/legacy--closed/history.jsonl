@@ -1,0 +1,9 @@
+{"ts":"2026-01-20T21:45:09.290766Z","type":"task.opened","data":{"base_branch":"main","base_commit":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","base_ref":"main","branch":"legacy/closed","follow_up":"","model":"","reason":"draft","reasoning":"","title":"Closed","workflow":"default"}}
+{"ts":"2026-01-20T21:45:09.290766Z","type":"stage.changed","data":{"from":"","to":"doing"}}
+{"ts":"2026-01-20T21:45:09.320839Z","type":"message","role":"lead","content":"do"}
+{"ts":"2026-01-20T21:45:09.320839Z","type":"worker.started","data":{"prompt_bytes":2,"run_id":"eeeaf94875438136"}}
+{"ts":"2026-01-20T21:45:09.390918Z","type":"worker.session","data":{"action":"started","harness":"mock","session_id":"mock-session-1768945509386221000"}}
+{"ts":"2026-01-20T21:45:09.426051Z","type":"message","role":"worker","content":"Mock response for: # Task\nName: legacy/closed\nTitle: Closed\nBranch: l"}
+{"ts":"2026-01-20T21:45:09.426051Z","type":"worker.finished","data":{"duration_ms":40,"outcome":"replied","run_id":"eeeaf94875438136","tool_calls":2}}
+{"ts":"2026-01-20T21:45:09.585256Z","type":"task.closed","data":{"reason":"close"}}
+{"ts":"2026-01-20T21:45:09.801387Z","type":"task.merged","data":{"branch":"legacy/closed","branch_head":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","commit":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","integrated_reason":"ancestor","into":"main","target_head":"3c15fd321445639fc6e6a611a7a58ac49e741c1d","via":"detected"}}

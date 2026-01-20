@@ -27,7 +27,7 @@ type Index struct {
 
 // OpenDefault opens (or creates) the index database at .subtask/index.db.
 func OpenDefault() (*Index, error) {
-	return Open(filepath.Join(task.ProjectDir(), "index.db"))
+	return Open(task.IndexPath())
 }
 
 // Open opens (or creates) the index database at path.

@@ -52,6 +52,13 @@ func (c *SendCmd) Run() error {
 		return fmt.Errorf("prompt is required\n\nProvide a prompt as argument or via stdin (heredoc/pipe)")
 	}
 
+	// Requirements: git + global config (config may be migrated on first access).
+	res, err := preflightProject()
+	if err != nil {
+		return err
+	}
+	cfg := res.Config
+
 	// Ensure schema/history exist (one-time).
 	if err := migrate.EnsureSchema(c.Task); err != nil {
 		return err
@@ -63,10 +70,6 @@ func (c *SendCmd) Run() error {
 			c.Task, c.Task)
 	}
 
-	cfg, err := workspace.LoadConfig()
-	if err != nil {
-		return err
-	}
 	if err := workspace.ValidateReasoningFlag(cfg.Harness, c.Reasoning); err != nil {
 		return err
 	}
@@ -439,10 +442,10 @@ func (c *SendCmd) prepareWorkspaceAndState(cfg *workspace.Config, h harness.Harn
 			if tail.TaskStatus != task.TaskStatusMerged {
 				baseRef = strings.TrimSpace(tail.BaseCommit)
 			}
-			if err := git.SetupBranch(wsPath, t, baseRef); err != nil {
+			if err := git.SetupBranch(wsPath, t.Name, t.BaseBranch, baseRef); err != nil {
 				// If the recorded base commit is missing (e.g., rewritten history), fall back to base branch HEAD.
 				if baseRef != "" {
-					if err2 := git.SetupBranch(wsPath, t, ""); err2 == nil {
+					if err2 := git.SetupBranch(wsPath, t.Name, t.BaseBranch, ""); err2 == nil {
 						baseRef = ""
 					} else {
 						return "", "", "", nil, fmt.Errorf("git setup failed: %w", err)

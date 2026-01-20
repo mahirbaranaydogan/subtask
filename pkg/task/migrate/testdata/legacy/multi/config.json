@@ -1,0 +1,7 @@
+{
+  "harness": "mock",
+  "max_workspaces": 3,
+  "options": {
+    "tool_calls": 2
+  }
+}

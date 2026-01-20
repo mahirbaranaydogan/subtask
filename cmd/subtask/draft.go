@@ -42,6 +42,11 @@ func (c *DraftCmd) Run() error {
 			"Provide description as argument or via stdin (heredoc/pipe)")
 	}
 
+	// Requirements: git + global config (config may be migrated on first access).
+	if _, err := preflightProject(); err != nil {
+		return err
+	}
+
 	// Check if task already exists
 	if _, err := task.Load(c.Task); err == nil {
 		return fmt.Errorf("task %q already exists", c.Task)

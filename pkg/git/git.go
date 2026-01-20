@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/zippoxer/subtask/pkg/logging"
-	"github.com/zippoxer/subtask/pkg/task"
+	"github.com/zippoxer/subtask/pkg/subtaskerr"
 )
 
 // Run runs a git command in the specified directory.
@@ -22,7 +22,10 @@ func Run(dir string, args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if !logging.DebugEnabled() {
-		return cmd.Run()
+		if err := cmd.Run(); err != nil {
+			return &Error{Dir: dir, Args: args, Cause: err}
+		}
+		return nil
 	}
 	start := time.Now()
 	err := cmd.Run()
@@ -32,7 +35,7 @@ func Run(dir string, args ...string) error {
 		gitCmdBatcher.flushNow()
 		logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
 		logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
-		return err
+		return &Error{Dir: dir, Args: args, Cause: err}
 	}
 
 	logGitCommandTiming(args, d)
@@ -70,7 +73,10 @@ func RunWithStderrFilter(dir string, stderrFilter func(string) string, args ...s
 		err = cmd.Run()
 	}
 	if stderr.Len() == 0 {
-		return err
+		if err != nil {
+			return &Error{Dir: dir, Args: args, Cause: err}
+		}
+		return nil
 	}
 
 	out := stderr.String()
@@ -80,7 +86,13 @@ func RunWithStderrFilter(dir string, stderrFilter func(string) string, args ...s
 	if out != "" {
 		_, _ = os.Stderr.WriteString(out)
 	}
-	return err
+	if err != nil {
+		if isNotGitRepoOutput(out) {
+			return subtaskerr.ErrNotGitRepo
+		}
+		return &Error{Dir: dir, Args: args, Stderr: out, Cause: err}
+	}
+	return nil
 }
 
 // FilterLineEndingWarnings removes common git line-ending conversion warnings.
@@ -110,13 +122,29 @@ func FilterLineEndingWarnings(stderr string) string {
 func RunQuiet(dir string, args ...string) error {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	if !logging.DebugEnabled() {
-		return cmd.Run()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	var (
+		err error
+		d   time.Duration
+	)
+	if logging.DebugEnabled() {
+		start := time.Now()
+		err = cmd.Run()
+		d = time.Since(start)
+		logGitCommandTiming(args, d)
+	} else {
+		err = cmd.Run()
 	}
-	start := time.Now()
-	err := cmd.Run()
-	logGitCommandTiming(args, time.Since(start))
-	return err
+	if err != nil {
+		out := stderr.String()
+		if isNotGitRepoOutput(out) {
+			return subtaskerr.ErrNotGitRepo
+		}
+		return &Error{Dir: dir, Args: args, Stderr: out, Cause: err}
+	}
+	return nil
 }
 
 // RunSilent runs a git command, capturing output and only showing it on error.
@@ -144,7 +172,12 @@ func RunSilent(dir string, args ...string) error {
 	}
 	if err != nil {
 		// Show the output only when there's an error
-		os.Stderr.Write(out)
+		_, _ = os.Stderr.Write(out)
+
+		if isNotGitRepoOutput(string(out)) {
+			return subtaskerr.ErrNotGitRepo
+		}
+		return &Error{Dir: dir, Args: args, Stderr: string(out), Cause: err}
 	}
 	return err
 }
@@ -153,24 +186,45 @@ func RunSilent(dir string, args ...string) error {
 func Output(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	if !logging.DebugEnabled() {
-		out, err := cmd.Output()
-		if err != nil {
-			logging.Error("git", fmt.Sprintf("%s error: %s", strings.Join(args, " "), err.Error()))
-		}
-		return strings.TrimSpace(string(out)), err
-	}
-	start := time.Now()
-	out, err := cmd.Output()
-	d := time.Since(start)
-	if err != nil {
-		gitCmdBatcher.flushNow()
-		logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
-		logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), err.Error(), d.Round(time.Millisecond)))
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	var (
+		err error
+		d   time.Duration
+	)
+	if logging.DebugEnabled() {
+		start := time.Now()
+		err = cmd.Run()
+		d = time.Since(start)
 	} else {
+		err = cmd.Run()
+	}
+
+	outStr := strings.TrimSpace(stdout.String())
+	errStr := stderr.String()
+
+	if err != nil {
+		if logging.DebugEnabled() {
+			gitCmdBatcher.flushNow()
+			logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
+			logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), strings.TrimSpace(errStr), d.Round(time.Millisecond)))
+		} else {
+			logging.Error("git", fmt.Sprintf("%s error: %s", strings.Join(args, " "), strings.TrimSpace(errStr)))
+		}
+		if isNotGitRepoOutput(errStr) {
+			return "", subtaskerr.ErrNotGitRepo
+		}
+		return "", &Error{Dir: dir, Args: args, Stderr: errStr, Cause: err}
+	}
+
+	if logging.DebugEnabled() {
 		logGitCommandTiming(args, d)
 	}
-	return strings.TrimSpace(string(out)), err
+	return outStr, nil
 }
 
 // CommitExists returns whether rev resolves to a commit object.
@@ -247,15 +301,15 @@ func Switch(dir, branch, startPoint string) error {
 }
 
 // SetupBranch sets up the git branch for a task (local-first).
-func SetupBranch(dir string, t *task.Task, baseCommit string) error {
+func SetupBranch(dir string, taskBranch string, baseBranch string, baseCommit string) error {
 	// Prefer a pinned base commit when available (stable diffs, staleness detection).
 	if baseCommit != "" {
-		if err := Switch(dir, t.Name, baseCommit); err == nil {
+		if err := Switch(dir, taskBranch, baseCommit); err == nil {
 			return nil
 		}
 	}
 
-	return Switch(dir, t.Name, t.BaseBranch)
+	return Switch(dir, taskBranch, baseBranch)
 }
 
 // IsClean checks if the working directory is clean.
