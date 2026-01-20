@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/zippoxer/subtask/pkg/task"
-	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
 func TestInterruptCLI_StopsRunningSend(t *testing.T) {
@@ -26,7 +25,8 @@ func TestInterruptCLI_StopsRunningSend(t *testing.T) {
 	}
 
 	binPath := buildSubtask(t)
-	root := setupParallelTestRepo(t, 1)
+	mockWorkerPath := mockWorkerPathForSubtask(binPath)
+	root := setupParallelTestRepo(t, 1, mockWorkerPath)
 
 	taskName := "interrupt/flow"
 
@@ -37,20 +37,12 @@ func TestInterruptCLI_StopsRunningSend(t *testing.T) {
 	out, err := draftCmd.CombinedOutput()
 	require.NoError(t, err, "draft failed: %s", out)
 
-	// Make the mock harness run long enough to interrupt deterministically.
-	cfg := &workspace.Config{
-		Harness:       "mock",
-		MaxWorkspaces: 1,
-		Options:       map[string]any{"tool_calls": 1000},
-	}
-	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
-	require.NoError(t, os.WriteFile(filepath.Join(root, ".subtask", "config.json"), cfgData, 0o644))
-
 	// Start send in background.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 
-	sendCmd := exec.CommandContext(ctx, binPath, "send", taskName, "Do something long-running")
+	longPrompt := mockPrompt("Do something long-running") + "\n/MockRunCommand sleep 30"
+	sendCmd := exec.CommandContext(ctx, binPath, "send", taskName, longPrompt)
 	sendCmd.Dir = root
 	require.NoError(t, sendCmd.Start())
 

@@ -20,7 +20,8 @@ func TestMerge_ReopenMergedTask_MergeAgain(t *testing.T) {
 	}
 
 	binPath := buildSubtask(t)
-	root := setupParallelTestRepo(t, 2)
+	mockWorkerPath := mockWorkerPathForSubtask(binPath)
+	root := setupParallelTestRepo(t, 2, mockWorkerPath)
 
 	taskName := "e2e/reopen-merge"
 
@@ -30,7 +31,7 @@ func TestMerge_ReopenMergedTask_MergeAgain(t *testing.T) {
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "draft failed: %s", out)
 
-	cmd = exec.Command(binPath, "send", taskName, "start")
+	cmd = exec.Command(binPath, "send", taskName, mockPrompt("start"))
 	cmd.Dir = root
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, "send failed: %s", out)
@@ -57,7 +58,7 @@ func TestMerge_ReopenMergedTask_MergeAgain(t *testing.T) {
 	require.NotEmpty(t, tail1.LastMergedCommit)
 
 	// Sending to a merged task reopens from main with a fresh branch.
-	cmd = exec.Command(binPath, "send", taskName, "reopen")
+	cmd = exec.Command(binPath, "send", taskName, mockPrompt("reopen"))
 	cmd.Dir = root
 	out, err = cmd.CombinedOutput()
 	require.NoError(t, err, "send reopen failed: %s", out)

@@ -79,7 +79,12 @@ func New(cfg *workspace.Config) (Harness, error) {
 			Agent:   getStringOpt(cfg.Options, "agent"),
 		}, nil
 	case "mock":
-		// Built-in mock for testing - returns quickly with canned response
+		// External mock worker - spawns a real process for realistic e2e testing.
+		return &MockCLIHarness{
+			cli: cliSpecFromOptions(cfg.Options, "subtask-mock-worker"),
+		}, nil
+	case "builtin-mock":
+		// Built-in in-process mock for fast unit tests.
 		return &BuiltinMock{
 			ToolCalls: getIntOpt(cfg.Options, "tool_calls", 3),
 		}, nil

@@ -21,7 +21,8 @@ func TestSendCLI_BasicFlowAndWorkingGuard(t *testing.T) {
 	}
 
 	binPath := buildSubtask(t)
-	root := setupParallelTestRepo(t, 2)
+	mockWorkerPath := mockWorkerPathForSubtask(binPath)
+	root := setupParallelTestRepo(t, 2, mockWorkerPath)
 
 	taskName := "send/state-machine"
 
@@ -33,7 +34,7 @@ func TestSendCLI_BasicFlowAndWorkingGuard(t *testing.T) {
 	require.NoError(t, err, "draft failed: %s", out)
 
 	// Send initial message (draft -> run logic)
-	sendCmd := exec.Command(binPath, "send", taskName, "Do something")
+	sendCmd := exec.Command(binPath, "send", taskName, mockPrompt("Do something"))
 	sendCmd.Dir = root
 	out, err = sendCmd.CombinedOutput()
 	require.NoError(t, err, "initial send failed: %s", out)
@@ -56,7 +57,7 @@ func TestSendCLI_BasicFlowAndWorkingGuard(t *testing.T) {
 	assert.Greater(t, tail.LastRunDurationMS, 0)
 
 	// Send follow-up message (replied -> resume logic)
-	followupCmd := exec.Command(binPath, "send", taskName, "Continue the work")
+	followupCmd := exec.Command(binPath, "send", taskName, mockPrompt("Continue the work"))
 	followupCmd.Dir = root
 	out, err = followupCmd.CombinedOutput()
 	require.NoError(t, err, "follow-up send failed: %s", out)

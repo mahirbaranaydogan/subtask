@@ -56,7 +56,7 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 
 	// Create config.json (workspaces discovered from disk, not stored)
 	cfg := &workspace.Config{
-		Harness:       "mock",
+		Harness:       "builtin-mock",
 		MaxWorkspaces: workspace.DefaultMaxWorkspaces,
 		Options: map[string]any{
 			"model": "gpt-5.2",

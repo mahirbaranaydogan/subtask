@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,9 +27,10 @@ func TestParallelCLI(t *testing.T) {
 
 	// Build the binary first
 	binPath := buildSubtask(t)
+	mockWorkerPath := mockWorkerPathForSubtask(binPath)
 
 	// Create test environment
-	root := setupParallelTestRepo(t, 4)
+	root := setupParallelTestRepo(t, 4, mockWorkerPath)
 
 	// Draft all 4 tasks first (sequential - no race here)
 	for i := 0; i < 4; i++ {
@@ -99,7 +101,8 @@ func TestParallelCLI_AllWorkspacesOccupied(t *testing.T) {
 	}
 
 	binPath := buildSubtask(t)
-	root := setupParallelTestRepo(t, 2) // Only 2 workspaces
+	mockWorkerPath := mockWorkerPathForSubtask(binPath)
+	root := setupParallelTestRepo(t, 2, mockWorkerPath) // Only 2 workspaces
 
 	// Draft all 4 tasks first (sequential)
 	for i := 0; i < 4; i++ {
@@ -150,7 +153,8 @@ func TestParallelSendFollowup(t *testing.T) {
 	}
 
 	binPath := buildSubtask(t)
-	root := setupParallelTestRepo(t, 4)
+	mockWorkerPath := mockWorkerPathForSubtask(binPath)
+	root := setupParallelTestRepo(t, 4, mockWorkerPath)
 
 	// First, draft and run 4 tasks sequentially to set them up
 	for i := 0; i < 4; i++ {
@@ -209,18 +213,37 @@ func buildSubtask(t *testing.T) string {
 	moduleRoot, err := findModuleRoot(thisFile)
 	require.NoError(t, err)
 
-	// Build to temp location
+	// Build to temp location (also build subtask-mock-worker into the same dir).
 	binName := "subtask"
 	if runtime.GOOS == "windows" {
 		binName += ".exe"
 	}
-	binPath := filepath.Join(t.TempDir(), binName)
+	binDir := t.TempDir()
+	binPath := filepath.Join(binDir, binName)
 	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/subtask")
 	cmd.Dir = moduleRoot
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "failed to build subtask: %s", out)
 
+	workerName := "subtask-mock-worker"
+	if runtime.GOOS == "windows" {
+		workerName += ".exe"
+	}
+	workerPath := filepath.Join(binDir, workerName)
+	cmd = exec.Command("go", "build", "-o", workerPath, "./cmd/subtask-mock-worker")
+	cmd.Dir = moduleRoot
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, "failed to build subtask-mock-worker: %s", out)
+
 	return binPath
+}
+
+func mockWorkerPathForSubtask(subtaskPath string) string {
+	name := "subtask-mock-worker"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(filepath.Dir(subtaskPath), name)
 }
 
 func findModuleRoot(filePath string) (string, error) {
@@ -241,7 +264,7 @@ func findModuleRoot(filePath string) (string, error) {
 	return "", fmt.Errorf("could not find go.mod from %s", filePath)
 }
 
-func setupParallelTestRepo(t *testing.T, numWorkspaces int) string {
+func setupParallelTestRepo(t *testing.T, numWorkspaces int, mockWorkerPath string) string {
 	t.Helper()
 
 	root := t.TempDir()
@@ -275,7 +298,7 @@ func setupParallelTestRepo(t *testing.T, numWorkspaces int) string {
 	cfg := &workspace.Config{
 		Harness:       "mock",
 		MaxWorkspaces: numWorkspaces,
-		Options:       map[string]any{"tool_calls": 3},
+		Options:       map[string]any{"cli": mockWorkerPath},
 	}
 	cfgData, _ := json.MarshalIndent(cfg, "", "  ")
 	os.WriteFile(filepath.Join(subtaskDir, "config.json"), cfgData, 0644)
@@ -292,7 +315,7 @@ func justRunSubtaskCmd(t *testing.T, binPath, root string, taskNum int) taskResu
 	t.Helper()
 
 	taskName := taskNameForNum(taskNum)
-	cmd := exec.Command(binPath, "send", taskName, "Do something for parallel test")
+	cmd := exec.Command(binPath, "send", taskName, mockPrompt("Do something for parallel test"))
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	return taskResult{
@@ -321,7 +344,7 @@ func draftAndRunSubtaskCmd(t *testing.T, binPath, root string, taskNum int) task
 	}
 
 	// Then run
-	runCmd := exec.Command(binPath, "send", taskName, "Do something for parallel test")
+	runCmd := exec.Command(binPath, "send", taskName, mockPrompt("Do something for parallel test"))
 	runCmd.Dir = root
 	out, err := runCmd.CombinedOutput()
 	return taskResult{
@@ -335,7 +358,7 @@ func sendSubtaskCmd(t *testing.T, binPath, root string, taskNum int) taskResult 
 	t.Helper()
 
 	taskName := taskNameForNum(taskNum)
-	cmd := exec.Command(binPath, "send", taskName, "Continue the work")
+	cmd := exec.Command(binPath, "send", taskName, mockPrompt("Continue the work"))
 	cmd.Dir = root
 
 	out, err := cmd.CombinedOutput()
@@ -344,6 +367,14 @@ func sendSubtaskCmd(t *testing.T, binPath, root string, taskNum int) taskResult 
 		err:     err,
 		output:  string(out),
 	}
+}
+
+func mockPrompt(base string) string {
+	base = strings.TrimSpace(base)
+	return base + "\n" +
+		"/MockRunCommand echo toolcall-1\n" +
+		"/MockRunCommand echo toolcall-2\n" +
+		"/MockRunCommand echo toolcall-3"
 }
 
 func loadStateFromDir(root, taskName string) (*task.State, error) {

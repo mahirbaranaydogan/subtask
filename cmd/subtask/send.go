@@ -248,6 +248,25 @@ func (c *SendCmd) Run() error {
 			errMsg = "worker failed"
 		}
 
+		// When a subprocess in the supervisor's process group receives SIGINT, some
+		// harnesses surface this as an exec error ("signal: interrupt") rather than
+		// triggering our process-level signal handler. Treat that case as an
+		// interruption for consistent state/history semantics.
+		if isLikelyInterruptedError(errMsg) {
+			errMsg = "interrupted"
+			_ = history.Append(c.Task, history.Event{
+				Type: "worker.interrupt",
+				Data: mustJSON(map[string]any{
+					"action":          "received",
+					"run_id":          runID,
+					"signal":          "SIGINT",
+					"supervisor_pid":  os.Getpid(),
+					"supervisor_pgid": task.SelfProcessGroupID(),
+				}),
+				TS: finished,
+			})
+		}
+
 		_ = task.WithLock(c.Task, func() error {
 			st, _ := task.LoadState(c.Task)
 			if st == nil {
@@ -585,4 +604,9 @@ func readStdinIfAvailable() string {
 func mustJSON(v any) json.RawMessage {
 	b, _ := json.Marshal(v)
 	return b
+}
+
+func isLikelyInterruptedError(msg string) bool {
+	msg = strings.ToLower(strings.TrimSpace(msg))
+	return strings.Contains(msg, "signal: interrupt") || strings.Contains(msg, "interrupted")
 }
