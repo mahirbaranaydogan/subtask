@@ -33,6 +33,15 @@ Claude:
 You: lets merge fix/auth-bug.
 ```
 
+### TUI
+<table>
+  <tr>
+    <td><img width="983" height="603" alt="image (2)" src="https://github.com/user-attachments/assets/fcc4686a-afa1-4168-b141-e54d9286ad4c" /></td>
+    <td><img width="985" height="603" alt="image" src="https://github.com/user-attachments/assets/9d6cd9a2-ba80-4e4e-9fdc-fd0f675b124a" />
+</td>
+  </tr>
+</table>
+
 ## Install
 
 ### Get the CLI
@@ -93,10 +102,6 @@ Ask Claude Code to do things:
 - "plan and implement the new API endpoint with Subtask"
 
 Claude Code will draft tasks and run them simultaneously in isolated Git worktrees, then help you review and merge the changes.
-
-## TUI
-<img width="850" height="521" alt="image (2)" src="https://github.com/user-attachments/assets/fcc4686a-afa1-4168-b141-e54d9286ad4c" />
-<img width="850" height="670" alt="image (1)" src="https://github.com/user-attachments/assets/f4954222-62cc-40ed-8a26-1797af4d206d" />
 
 ## Updating
 ```bash
