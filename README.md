@@ -39,6 +39,10 @@ You: lets merge fix/auth-bug.
 ```
 
 ### TUI
+Run this in your terminal:
+```bash
+subtask
+```
 <table>
   <tr>
     <td><img width="983" height="603" alt="image (2)" src="https://github.com/user-attachments/assets/fcc4686a-afa1-4168-b141-e54d9286ad4c" /></td>
