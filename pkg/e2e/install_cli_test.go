@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/zippoxer/subtask/pkg/install"
+	"github.com/zippoxer/subtask/pkg/workspace"
 )
 
 func TestInstall_UserScope_InstallsSkill_AndIsIdempotent(t *testing.T) {
@@ -314,6 +315,7 @@ func TestInstall_Guide_DoesNotWriteAnything(t *testing.T) {
 
 	out := runSubtask(t, bin, cwd, home, "install", "--guide")
 	require.Contains(t, out, "# Setup Subtask")
+	require.Contains(t, out, "Not in a git repository")
 
 	// Debug
 	entries, _ := os.ReadDir(home)
@@ -333,6 +335,124 @@ func TestInstall_Guide_DoesNotWriteAnything(t *testing.T) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func TestInstall_Guide_InGitRepo_MultipleHarnesses_ShowsHarnessChoice(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+
+	addStubCommandToPATH(t, "codex")
+	addStubCommandToPATH(t, "claude")
+
+	repo := t.TempDir()
+	initGitRepo(t, repo)
+
+	out := runSubtask(t, bin, repo, home, "install", "--guide")
+	require.Contains(t, out, "In a git repository")
+	require.Contains(t, out, "Ask the user which harness")
+	require.Contains(t, out, "subtask install --no-prompt --harness <codex|claude|opencode>")
+
+	_, err := os.Stat(filepath.Join(home, ".subtask"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(home, ".claude"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestInstall_NoPrompt_Flags_WriteConfig(t *testing.T) {
+	bin := buildSubtask(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "claude")
+
+	cwd := t.TempDir()
+	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--harness", "claude", "--model", "claude-sonnet-4-20250514", "--max-workspaces", "7")
+	require.Contains(t, out, "Configured subtask")
+
+	var cfg workspace.Config
+	require.NoError(t, readJSON(filepath.Join(home, ".subtask", "config.json"), &cfg))
+	require.Equal(t, "claude", cfg.Harness)
+	require.Equal(t, 7, cfg.MaxWorkspaces)
+	require.NotNil(t, cfg.Options)
+	require.Equal(t, "claude-sonnet-4-20250514", cfg.Options["model"])
+	_, hasReasoning := cfg.Options["reasoning"]
+	require.False(t, hasReasoning)
+}
+
+func TestInstall_NoPrompt_ReasoningRequiresCodex(t *testing.T) {
+	bin := buildSubtask(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "claude")
+
+	cwd := t.TempDir()
+	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--harness", "claude", "--reasoning", "high")
+	require.Error(t, err)
+	require.Contains(t, out, "reasoning is codex-only")
+}
+
+func TestInstall_NoPrompt_InvalidHarnessRejected(t *testing.T) {
+	bin := buildSubtask(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+
+	cwd := t.TempDir()
+	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--harness", "nope")
+	require.Error(t, err)
+	require.Contains(t, out, "invalid harness")
+}
+
+func TestInstall_ProjectScope_InstallsSkillToRepoOnly(t *testing.T) {
+	bin := buildSubtask(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+
+	repo := t.TempDir()
+	initGitRepo(t, repo)
+
+	out := runSubtask(t, bin, repo, home, "install", "--no-prompt", "--scope", "project")
+	require.Contains(t, out, "Installed skill")
+
+	// Skill path should be project-scoped.
+	projectSkillPath := filepath.Join(repo, ".claude", "skills", "subtask", "SKILL.md")
+	gotSkill, err := os.ReadFile(projectSkillPath)
+	require.NoError(t, err)
+	require.Equal(t, install.Embedded(), gotSkill)
+
+	// User-scope path should not be touched.
+	_, err = os.Stat(filepath.Join(home, ".claude", "skills", "subtask", "SKILL.md"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestInstall_ProjectScope_RequiresGitRepo(t *testing.T) {
+	bin := buildSubtask(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+
+	cwd := t.TempDir()
+	out, err := runSubtaskWithHomeEnv(t, bin, cwd, home, "install", "--no-prompt", "--scope", "project")
+	require.Error(t, err)
+	require.Contains(t, out, "--scope=project requires being in a git repository")
 }
 
 func TestAutoUpdate_RepairsDriftOnlyWhenInstalled(t *testing.T) {
@@ -364,6 +484,13 @@ func TestAutoUpdate_RepairsDriftOnlyWhenInstalled(t *testing.T) {
 
 func runSubtask(t *testing.T, bin string, dir string, home string, args ...string) string {
 	t.Helper()
+	out, err := runSubtaskWithHomeEnv(t, bin, dir, home, args...)
+	require.NoError(t, err, "%s", out)
+	return out
+}
+
+func runSubtaskWithHomeEnv(t *testing.T, bin string, dir string, home string, args ...string) (string, error) {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = dir
 	env := make([]string, 0, len(os.Environ())+2)
@@ -387,8 +514,7 @@ func runSubtask(t *testing.T, bin string, dir string, home string, args ...strin
 	)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, "%s", out)
-	return string(out)
+	return string(out), err
 }
 
 func readJSON(path string, v any) error {

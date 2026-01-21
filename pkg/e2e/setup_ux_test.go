@@ -212,6 +212,43 @@ func TestSetupUX(t *testing.T) {
 		require.FileExists(t, filepath.Join(repo, ".subtask", "config.json"))
 	})
 
+	t.Run("ConfigProject_NoPrompt_FlagsOverride", func(t *testing.T) {
+		subtaskDir := t.TempDir()
+		t.Setenv("SUBTASK_DIR", subtaskDir)
+		t.Setenv("SUBTASK_DEBUG", "")
+
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home) // windows
+
+		addStubCommandToPATH(t, "codex")
+
+		// Global config present, but should not influence flag-driven project config.
+		cfg := &workspace.Config{Harness: "builtin-mock", MaxWorkspaces: 3}
+		cfgData, _ := json.MarshalIndent(cfg, "", "  ")
+		require.NoError(t, os.MkdirAll(filepath.Dir(task.ConfigPath()), 0o755))
+		require.NoError(t, os.WriteFile(task.ConfigPath(), cfgData, 0o644))
+
+		repo := t.TempDir()
+		initGitRepo(t, repo)
+
+		out, err := runSubtaskWithErr(t, bin, repo,
+			"config", "--project", "--no-prompt",
+			"--harness", "codex",
+			"--model", "gpt-5.2-codex",
+			"--reasoning", "medium",
+			"--max-workspaces", "9",
+		)
+		require.NoError(t, err, out)
+
+		var got workspace.Config
+		require.NoError(t, readJSON(filepath.Join(repo, ".subtask", "config.json"), &got))
+		require.Equal(t, "codex", got.Harness)
+		require.Equal(t, 9, got.MaxWorkspaces)
+		require.Equal(t, "gpt-5.2-codex", got.Options["model"])
+		require.Equal(t, "medium", got.Options["reasoning"])
+	})
+
 	t.Run("Migration_NoClobber_WhenDestinationExists", func(t *testing.T) {
 		subtaskDir := t.TempDir()
 		t.Setenv("SUBTASK_DIR", subtaskDir)

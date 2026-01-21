@@ -106,7 +106,34 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		numWorkspaces = p.MaxWorkspaces
 	}
 
+	validateSelections := func(harnessName, reasoningLevel string) error {
+		harnessName = strings.TrimSpace(harnessName)
+		switch harnessName {
+		case "codex", "claude", "opencode":
+			// ok
+		default:
+			return fmt.Errorf("invalid harness %q\n\nAllowed: codex, claude, opencode", harnessName)
+		}
+
+		// Ensure selected harness is available.
+		if !harness.CanResolveCLI(harnessName) {
+			switch harnessName {
+			case "codex":
+				return fmt.Errorf("codex CLI not found\n\nInstall it from: https://github.com/openai/codex")
+			case "claude":
+				return fmt.Errorf("claude CLI not found\n\nInstall it from: https://claude.com/claude-code")
+			default:
+				return fmt.Errorf("opencode CLI not found\n\nInstall it from: https://github.com/anomalyco/opencode")
+			}
+		}
+
+		return workspace.ValidateReasoningFlag(harnessName, reasoningLevel)
+	}
+
 	if p.NoPrompt {
+		if err := validateSelections(h, reasoning); err != nil {
+			return nil, false, err
+		}
 		cfg := &workspace.Config{
 			Harness:       h,
 			MaxWorkspaces: numWorkspaces,
@@ -280,16 +307,9 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		step++
 	}
 
-	// Final validation - ensure selected harness is available.
-	if !harness.CanResolveCLI(h) {
-		switch h {
-		case "codex":
-			return nil, false, fmt.Errorf("codex CLI not found\n\nInstall it from: https://github.com/openai/codex")
-		case "claude":
-			return nil, false, fmt.Errorf("claude CLI not found\n\nInstall it from: https://claude.com/claude-code")
-		default:
-			return nil, false, fmt.Errorf("opencode CLI not found\n\nInstall it from: https://github.com/anomalyco/opencode")
-		}
+	// Final validation - ensure selections are valid and harness is available.
+	if err := validateSelections(h, reasoning); err != nil {
+		return nil, false, err
 	}
 
 	cfg := &workspace.Config{
@@ -323,4 +343,3 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 
 	return cfg, true, nil
 }
-
