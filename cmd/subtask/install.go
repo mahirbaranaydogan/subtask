@@ -4,188 +4,82 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/huh"
+	"github.com/zippoxer/subtask/internal/homedir"
 	"github.com/zippoxer/subtask/pkg/install"
 	"github.com/zippoxer/subtask/pkg/task"
 )
 
 // InstallCmd implements 'subtask install'.
 type InstallCmd struct {
-	Skill    bool   `help:"Install only the skill"`
-	Plugin   bool   `help:"Install only the plugin"`
-	Scope    string `default:"user" enum:"user,project" help:"Installation scope"`
-	NoPrompt bool   `help:"Non-interactive; use defaults"`
+	Guide    bool `help:"Print setup guidance and exit"`
+	NoPrompt bool `help:"Non-interactive; use defaults"`
 }
 
 func (c *InstallCmd) Run() error {
-	scope, err := parseInstallScope(c.Scope)
+	if c.Guide {
+		printSetupGuide()
+		return nil
+	}
+
+	homeDir, err := homedir.Dir()
 	if err != nil {
 		return err
 	}
 
-	installSkill := c.Skill
-	installPlugin := c.Plugin
-	if !c.Skill && !c.Plugin {
-		installSkill = true
-		installPlugin = true
+	once, err := install.RunLegacyClaudePluginMigrationOnce(homeDir)
+	if err != nil {
+		return err
+	}
+	if once.Ran && once.Migration.SkippedSettingsMalformed {
+		printWarning(fmt.Sprintf("Skipped legacy settings cleanup (malformed JSON at %s)", abbreviatePath(once.Migration.SettingsPath)))
+	}
+	if once.Ran && (once.Migration.RemovedLegacyPluginDir || once.Migration.RemovedLegacySettingsKey) {
+		printSuccess("Removed legacy Claude plugin install artifacts")
 	}
 
-	if !c.NoPrompt && !c.Skill && !c.Plugin {
-		installSkill = true
-		installPlugin = true
-		scope = install.ScopeUser
-		if c.Scope != "" {
-			if s, err := parseInstallScope(c.Scope); err == nil {
-				scope = s
-			}
-		}
+	skillPath, updated, err := install.InstallTo(homeDir)
+	if err != nil {
+		return err
+	}
+	if updated {
+		printSuccess(fmt.Sprintf("Installed skill to %s", abbreviatePath(skillPath)))
+	} else {
+		printSuccess(fmt.Sprintf("Skill already up to date at %s", abbreviatePath(skillPath)))
+	}
 
-		baseDir, _, err := baseDirForScope(scope)
+	// If not configured yet, run the config wizard and write ~/.subtask/config.json.
+	if _, err := os.Stat(task.ConfigPath()); os.IsNotExist(err) {
+		cfg, _, err := runConfigWizard(configWizardParams{
+			WritePath: task.ConfigPath(),
+			Existing:  readConfigFileOrNil(task.ConfigPath()),
+			NoPrompt:  c.NoPrompt,
+		})
 		if err != nil {
 			return err
 		}
-
-		// Enter alternate screen buffer (preserves terminal history)
-		fmt.Print("\033[?1049h")
-
-		step := 0
-		for {
-			// Clear screen and show progress
-			fmt.Print("\033[H\033[2J")
-			fmt.Println()
-			fmt.Println("  Install Subtask skill and Claude plugin")
-			fmt.Println()
-			if step > 0 {
-				fmt.Printf("  Skill:  %s\n", yesNo(installSkill))
-			}
-			if step > 1 {
-				fmt.Printf("  Plugin: %s\n", yesNo(installPlugin))
-			}
-			if step > 2 {
-				fmt.Printf("  Scope:  %s\n", scope)
-			}
-			if step > 0 {
-				fmt.Println()
-			}
-
-			var form *huh.Form
-			switch step {
-			case 0:
-				form = huh.NewForm(huh.NewGroup(
-					huh.NewConfirm().
-						Title("Install skill?").
-						Value(&installSkill),
-				))
-			case 1:
-				form = huh.NewForm(huh.NewGroup(
-					huh.NewConfirm().
-						Title("Install plugin?").
-						Value(&installPlugin),
-				))
-			case 2:
-				form = huh.NewForm(huh.NewGroup(
-					huh.NewSelect[install.Scope]().
-						Title("Scope").
-						Options(
-							huh.NewOption("User (recommended)", install.ScopeUser),
-							huh.NewOption("Project", install.ScopeProject),
-						).
-						Value(&scope),
-				))
-			default:
-				goto done
-			}
-
-			km := huh.NewDefaultKeyMap()
-			km.Quit = key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "back"))
-			km.Select.Filter = key.NewBinding(key.WithDisabled())
-			form = form.WithKeyMap(km).WithTheme(huh.ThemeCharm()).WithShowHelp(true)
-
-			if err := form.Run(); err == huh.ErrUserAborted {
-				if step == 0 {
-					fmt.Print("\033[?1049l") // exit alternate buffer
-					return fmt.Errorf("install cancelled")
-				}
-				step--
-				continue
-			} else if err != nil {
-				// Non-interactive; keep defaults and continue without prompting.
-				break
-			}
-
-			// Recompute base dir if scope changes.
-			if step == 2 {
-				baseDir, _, err = baseDirForScope(scope)
-				if err != nil {
-					fmt.Print("\033[?1049l") // exit alternate buffer
-					return err
-				}
-				_ = baseDir
-			}
-
-			step++
+		if cfg != nil {
+			printSuccess("Configured subtask")
 		}
-	done:
-		// Exit alternate screen buffer
-		fmt.Print("\033[?1049l")
-	}
-
-	baseDir, inGit, err := baseDirForScope(scope)
-	if err != nil {
-		return err
-	}
-
-	res, err := install.InstallAll(install.InstallRequest{
-		Scope:   scope,
-		BaseDir: baseDir,
-		Skill:   installSkill,
-		Plugin:  installPlugin,
-	})
-	if err != nil {
-		return err
-	}
-
-	if installSkill {
-		msg := fmt.Sprintf("Installed skill to %s", abbreviatePath(res.SkillPath))
-		if !res.UpdatedSkill {
-			msg = fmt.Sprintf("Skill already up to date at %s", abbreviatePath(res.SkillPath))
-		}
-		printSuccess(msg)
-	}
-
-	if installPlugin {
-		msg := fmt.Sprintf("Installed plugin to %s", abbreviatePath(res.PluginDir))
-		if !res.UpdatedPlugin {
-			msg = fmt.Sprintf("Plugin already up to date at %s", abbreviatePath(res.PluginDir))
-		}
-		printSuccess(msg)
-		if res.Settings.Rewrote && res.Settings.BackupTo != "" {
-			printWarning(fmt.Sprintf("Rewrote malformed settings.json (backup at %s)", abbreviatePath(res.Settings.BackupTo)))
-		}
-	}
-
-	// If fully installed and not configured yet, run the config wizard and write ~/.subtask/config.json.
-	if installSkill && installPlugin {
-		if _, err := os.Stat(task.ConfigPath()); os.IsNotExist(err) {
-			cfg, _, err := runConfigWizard(configWizardParams{
-				WritePath: task.ConfigPath(),
-				Existing:  readConfigFileOrNil(task.ConfigPath()),
-				NoPrompt:  c.NoPrompt,
-			})
-			if err != nil {
-				return err
-			}
-			if cfg != nil {
-				printSuccess("Configured subtask")
-			}
-		}
-	}
-
-	// Best-effort: ignore portable subtask data in git repos.
-	if inGit {
-		_ = ensureGitignore(baseDir)
 	}
 
 	return nil
+}
+
+func printSetupGuide() {
+	fmt.Println("Subtask setup (Claude Code)")
+	fmt.Println()
+	fmt.Println("Install the Subtask skill:")
+	fmt.Println("  subtask install")
+	fmt.Println()
+	fmt.Println("Optional: project overrides:")
+	fmt.Println("  subtask config --project")
+	fmt.Println()
+	fmt.Println("Optional: install the Claude plugin (skill reminders):")
+	fmt.Println("  /plugin marketplace add zippoxer/subtask")
+	fmt.Println("  /plugin install subtask@subtask")
+	fmt.Println()
+	fmt.Println("Example usage:")
+	fmt.Println(`  "fix the login bug with Subtask"`)
+	fmt.Println(`  "run these 3 features in parallel"`)
+	fmt.Println(`  "plan and implement the new API endpoint with Subtask"`)
 }

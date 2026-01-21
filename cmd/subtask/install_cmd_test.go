@@ -14,6 +14,7 @@ func TestInstallStatusUninstall_UserScope_NoPrompt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
 
 	cwd := t.TempDir()
 	prev, _ := os.Getwd()
@@ -34,7 +35,7 @@ func TestInstallStatusUninstall_UserScope_NoPrompt(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Skill installed: no")
-	require.Contains(t, stdout, "Plugin installed: no")
+	require.NotContains(t, stdout, "Plugin installed")
 
 	_, stderr, err = captureStdoutStderr(t, (&InstallCmd{NoPrompt: true}).Run)
 	require.NoError(t, err)
@@ -44,8 +45,7 @@ func TestInstallStatusUninstall_UserScope_NoPrompt(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Skill installed: yes")
-	require.Contains(t, stdout, "Plugin installed: yes")
-	require.Contains(t, stdout, "Plugin enabled: yes")
+	require.NotContains(t, stdout, "Plugin installed")
 
 	_, stderr, err = captureStdoutStderr(t, (&UninstallCmd{}).Run)
 	require.NoError(t, err)
@@ -55,5 +55,5 @@ func TestInstallStatusUninstall_UserScope_NoPrompt(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, stderr)
 	require.Contains(t, stdout, "Skill installed: no")
-	require.Contains(t, stdout, "Plugin installed: no")
+	require.NotContains(t, stdout, "Plugin installed")
 }

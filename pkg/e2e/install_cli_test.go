@@ -13,15 +13,18 @@ import (
 	"github.com/zippoxer/subtask/pkg/install"
 )
 
-func TestInstall_UserScope_CreatesSkillPluginAndObjectSettings(t *testing.T) {
+func TestInstall_UserScope_InstallsSkill_AndIsIdempotent(t *testing.T) {
 	bin := buildSubtask(t)
 
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
 	cwd := t.TempDir()
 
 	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 	require.Contains(t, out, "Installed skill")
-	require.Contains(t, out, "Installed plugin")
 
 	// Skill path.
 	skillPath := filepath.Join(home, ".claude", "skills", "subtask", "SKILL.md")
@@ -29,49 +32,67 @@ func TestInstall_UserScope_CreatesSkillPluginAndObjectSettings(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, install.Embedded(), gotSkill)
 
-	// Plugin files + exec bit.
-	pluginDir := filepath.Join(home, ".claude", "plugins", "subtask")
-	require.FileExists(t, filepath.Join(pluginDir, ".claude-plugin", "plugin.json"))
-	require.FileExists(t, filepath.Join(pluginDir, "hooks", "hooks.json"))
-	scriptPath := filepath.Join(pluginDir, "scripts", "skill-reminder.sh")
-	info, err := os.Stat(scriptPath)
-	require.NoError(t, err)
-	if runtime.GOOS != "windows" {
-		require.NotZero(t, info.Mode().Perm()&0o111, "should be executable on Unix")
-	}
-
-	// Settings.json: enabledPlugins must be object.
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	var settings map[string]any
-	require.NoError(t, readJSON(settingsPath, &settings))
-	enabled, ok := settings["enabledPlugins"].(map[string]any)
-	require.True(t, ok, "enabledPlugins should be an object")
-	require.Equal(t, true, enabled["subtask"])
-
 	// Idempotent: second install shouldn't break settings or content.
 	out2 := runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 	require.Contains(t, out2, "Skill already up to date")
-	require.Contains(t, out2, "Plugin already up to date")
-	require.NoError(t, readJSON(settingsPath, &settings))
-	enabled, ok = settings["enabledPlugins"].(map[string]any)
-	require.True(t, ok, "enabledPlugins should be an object")
-	require.Equal(t, true, enabled["subtask"])
 }
 
-func TestInstall_Settings_ObjectFormatPreserved(t *testing.T) {
+func TestInstall_Migration_NoLegacyArtifacts_NoWritesToSettings(t *testing.T) {
 	bin := buildSubtask(t)
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
 	cwd := t.TempDir()
+
+	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt")
+	require.Contains(t, out, "Installed skill")
+
+	// Migration must not create these.
+	_, err := os.Stat(filepath.Join(home, ".claude", "settings.json"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(home, ".claude", "plugins", "subtask"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestInstall_Migration_RemovesLegacyPluginDir(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
+
+	legacyDir := filepath.Join(home, ".claude", "plugins", "subtask")
+	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "sentinel"), []byte("x"), 0o644))
+
+	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
+
+	_, err := os.Stat(legacyDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestInstall_Migration_RemovesLegacySettingsKeyOnly(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	subtaskDir := filepath.Join(home, ".subtask")
+	t.Setenv("SUBTASK_DIR", subtaskDir)
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(subtaskDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(subtaskDir, "config.json"), []byte(`{"harness":"codex","max_workspaces":1}`+"\n"), 0o644))
 
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
-	require.NoError(t, os.WriteFile(settingsPath, []byte(`{
-  "enabledPlugins": { "other": true },
-  "keep": { "nested": 123 }
-}
-`), 0o644))
+	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"enabledPlugins":{"subtask":true,"other":true},"keep":123}`+"\n"), 0o644))
 
-	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--plugin")
+	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 
 	var settings map[string]any
 	require.NoError(t, readJSON(settingsPath, &settings))
@@ -79,101 +100,233 @@ func TestInstall_Settings_ObjectFormatPreserved(t *testing.T) {
 	enabled, ok := settings["enabledPlugins"].(map[string]any)
 	require.True(t, ok, "enabledPlugins should remain an object")
 	require.Equal(t, true, enabled["other"])
-	require.Equal(t, true, enabled["subtask"])
-
-	keep, ok := settings["keep"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, float64(123), keep["nested"])
+	require.Nil(t, enabled["subtask"])
+	require.Equal(t, float64(123), settings["keep"])
 }
 
-func TestInstall_Settings_ArrayFormatConvertedToObject(t *testing.T) {
+func TestInstall_Migration_DoesNotRemoveMarketplaceKey(t *testing.T) {
 	bin := buildSubtask(t)
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	subtaskDir := filepath.Join(home, ".subtask")
+	t.Setenv("SUBTASK_DIR", subtaskDir)
+	addStubCommandToPATH(t, "codex")
 	cwd := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(subtaskDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(subtaskDir, "config.json"), []byte(`{"harness":"codex","max_workspaces":1}`+"\n"), 0o644))
 
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
-	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"enabledPlugins":["other"]}`+"\n"), 0o644))
-
-	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--plugin")
-
-	var settings map[string]any
-	require.NoError(t, readJSON(settingsPath, &settings))
-	enabled, ok := settings["enabledPlugins"].(map[string]any)
-	require.True(t, ok, "enabledPlugins should be converted to an object")
-	require.Equal(t, true, enabled["other"])
-	require.Equal(t, true, enabled["subtask"])
-}
-
-func TestInstall_Settings_MalformedJSON_BackupsAndCreatesFreshObject(t *testing.T) {
-	bin := buildSubtask(t)
-	home := t.TempDir()
-	cwd := t.TempDir()
-
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
-	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
-	require.NoError(t, os.WriteFile(settingsPath, []byte("{not json"), 0o644))
-
-	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt", "--plugin")
-	require.Contains(t, out, "Rewrote malformed settings.json")
-
-	// Backup should exist (exact suffix may include timestamp).
-	matches, err := filepath.Glob(settingsPath + ".bak*")
-	require.NoError(t, err)
-	require.NotEmpty(t, matches)
-
-	var settings map[string]any
-	require.NoError(t, readJSON(settingsPath, &settings))
-	enabled, ok := settings["enabledPlugins"].(map[string]any)
-	require.True(t, ok, "enabledPlugins should be an object")
-	require.Equal(t, true, enabled["subtask"])
-}
-
-func TestUninstall_RemovesPluginFromEnabledPlugins(t *testing.T) {
-	bin := buildSubtask(t)
-	home := t.TempDir()
-	cwd := t.TempDir()
+	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"enabledPlugins":{"subtask@subtask":true}}`+"\n"), 0o644))
 
 	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 
-	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	var settings map[string]any
 	require.NoError(t, readJSON(settingsPath, &settings))
+	enabled, ok := settings["enabledPlugins"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, enabled["subtask@subtask"])
+}
 
-	enabled := settings["enabledPlugins"].(map[string]any)
-	enabled["other"] = true
+func TestInstall_Migration_PreservesComplexSettings(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	subtaskDir := filepath.Join(home, ".subtask")
+	t.Setenv("SUBTASK_DIR", subtaskDir)
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
+
+	const settingsJSON = `{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "alwaysThinkingEnabled": true,
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "gopls-lsp@claude-plugins-official": true,
+    "dev-browser@dev-browser-marketplace": true,
+    "subtask": true
+  },
+  "env": {
+    "BASH_MAX_TIMEOUT_MS": "7200000"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "echo 'hello'",
+            "type": "command"
+          }
+        ],
+        "matcher": "compact"
+      }
+    ]
+  },
+  "statusLine": {
+    "command": "~/.claude/statusline.sh",
+    "type": "command"
+  }
+}
+`
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
+	require.NoError(t, os.WriteFile(settingsPath, []byte(settingsJSON), 0o644))
+
+	require.NoError(t, os.MkdirAll(subtaskDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(subtaskDir, "config.json"), []byte(`{"harness":"codex","max_workspaces":1}`+"\n"), 0o644))
+
+	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
+
+	var got map[string]any
+	require.NoError(t, readJSON(settingsPath, &got))
+
+	enabled, ok := got["enabledPlugins"].(map[string]any)
+	require.True(t, ok)
+	require.Nil(t, enabled["subtask"])
+
+	var expected map[string]any
+	require.NoError(t, json.Unmarshal([]byte(settingsJSON), &expected))
+	expectedEnabled, ok := expected["enabledPlugins"].(map[string]any)
+	require.True(t, ok)
+	delete(expectedEnabled, "subtask")
+	expected["enabledPlugins"] = expectedEnabled
+
+	require.Equal(t, expected, got)
+}
+
+func TestInstall_Migration_RunOnce_SkipsOnSecondInstall(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	subtaskDir := filepath.Join(home, ".subtask")
+	t.Setenv("SUBTASK_DIR", subtaskDir)
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(subtaskDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(subtaskDir, "config.json"), []byte(`{"harness":"codex","max_workspaces":1}`+"\n"), 0o644))
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
+	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"enabledPlugins":{"subtask":true,"other":true}}`+"\n"), 0o644))
+
+	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
+
+	var settings map[string]any
+	require.NoError(t, readJSON(settingsPath, &settings))
+	enabled, ok := settings["enabledPlugins"].(map[string]any)
+	require.True(t, ok)
+	require.Nil(t, enabled["subtask"])
+	require.Equal(t, true, enabled["other"])
+
+	markerPath := filepath.Join(subtaskDir, "migrations", "legacy-claude-plugin-v1.done")
+	require.FileExists(t, markerPath)
+
+	// Reintroduce the legacy key; second install should not run migration again.
+	enabled["subtask"] = true
 	settings["enabledPlugins"] = enabled
 	b, err := json.MarshalIndent(settings, "", "  ")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(settingsPath, append(b, '\n'), 0o644))
 
-	_ = runSubtask(t, bin, cwd, home, "uninstall", "--plugin")
+	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 
 	require.NoError(t, readJSON(settingsPath, &settings))
+	enabled, ok = settings["enabledPlugins"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, true, enabled["subtask"])
+	require.Equal(t, true, enabled["other"])
+}
+
+func TestInstall_Migration_BothDirAndSettings(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
+
+	legacyDir := filepath.Join(home, ".claude", "plugins", "subtask")
+	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "sentinel"), []byte("x"), 0o644))
+
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
+	require.NoError(t, os.WriteFile(settingsPath, []byte(`{"enabledPlugins":{"subtask":true,"other":true}}`+"\n"), 0o644))
+
+	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
+
+	_, err := os.Stat(legacyDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	var settings map[string]any
+	require.NoError(t, readJSON(settingsPath, &settings))
 	enabled, ok := settings["enabledPlugins"].(map[string]any)
-	require.True(t, ok, "enabledPlugins should be an object")
+	require.True(t, ok)
 	require.Nil(t, enabled["subtask"])
 	require.Equal(t, true, enabled["other"])
 }
 
-func TestInstall_ProjectScope_UsesRepoRoot(t *testing.T) {
+func TestInstall_Migration_MalformedSettingsJSON_SkipsAndWarns(t *testing.T) {
 	bin := buildSubtask(t)
-
 	home := t.TempDir()
-	repo := t.TempDir()
-	initGitRepo(t, repo)
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
+	cwd := t.TempDir()
 
-	out := runSubtask(t, bin, repo, home, "install", "--no-prompt", "--scope", "project")
-	require.Contains(t, out, "Installed skill")
-	require.Contains(t, out, "Installed plugin")
+	legacyDir := filepath.Join(home, ".claude", "plugins", "subtask")
+	require.NoError(t, os.MkdirAll(legacyDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(legacyDir, "sentinel"), []byte("x"), 0o644))
 
-	require.FileExists(t, filepath.Join(repo, ".claude", "skills", "subtask", "SKILL.md"))
-	require.FileExists(t, filepath.Join(repo, ".claude", "plugins", "subtask", ".claude-plugin", "plugin.json"))
+	settingsPath := filepath.Join(home, ".claude", "settings.json")
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o755))
+	require.NoError(t, os.WriteFile(settingsPath, []byte("{not json"), 0o644))
+
+	out := runSubtask(t, bin, cwd, home, "install", "--no-prompt")
+	require.Contains(t, out, "Skipped legacy settings cleanup")
+
+	// Plugin dir removed even if settings.json was malformed.
+	_, err := os.Stat(legacyDir)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// settings.json is untouched.
+	data, err := os.ReadFile(settingsPath)
+	require.NoError(t, err)
+	require.Equal(t, "{not json", string(data))
+}
+
+func TestInstall_Guide_DoesNotWriteAnything(t *testing.T) {
+	bin := buildSubtask(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	cwd := t.TempDir()
+
+	out := runSubtask(t, bin, cwd, home, "install", "--guide")
+	require.Contains(t, out, "Subtask setup")
+
+	_, err := os.Stat(filepath.Join(home, ".claude"))
+	require.ErrorIs(t, err, os.ErrNotExist)
+	_, err = os.Stat(filepath.Join(home, ".subtask"))
+	require.ErrorIs(t, err, os.ErrNotExist)
 }
 
 func TestAutoUpdate_RepairsDriftOnlyWhenInstalled(t *testing.T) {
 	bin := buildSubtask(t)
 	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // windows
+	t.Setenv("SUBTASK_DIR", filepath.Join(home, ".subtask"))
+	addStubCommandToPATH(t, "codex")
 	cwd := t.TempDir()
 
 	// Not installed: running any command should not create files.
@@ -185,12 +338,9 @@ func TestAutoUpdate_RepairsDriftOnlyWhenInstalled(t *testing.T) {
 	_ = runSubtask(t, bin, cwd, home, "install", "--no-prompt")
 	skillPath := filepath.Join(home, ".claude", "skills", "subtask", "SKILL.md")
 	require.NoError(t, os.WriteFile(skillPath, []byte("different"), 0o644))
-	pluginHookPath := filepath.Join(home, ".claude", "plugins", "subtask", "hooks", "hooks.json")
-	require.NoError(t, os.WriteFile(pluginHookPath, []byte(`{}`), 0o644))
 
 	out := runSubtask(t, bin, cwd, home, "status")
 	require.Contains(t, out, "Updated skill to latest version")
-	require.Contains(t, out, "Updated plugin to latest version")
 
 	gotSkill, err := os.ReadFile(skillPath)
 	require.NoError(t, err)

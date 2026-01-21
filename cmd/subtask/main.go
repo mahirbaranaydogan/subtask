@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/alecthomas/kong"
 )
@@ -16,10 +17,10 @@ var (
 type CLI struct {
 	Version kong.VersionFlag `help:"Print version information and quit"`
 
-	Install   InstallCmd   `cmd:"" help:"Install Subtask skill + plugin (Claude Code) and configure defaults"`
+	Install   InstallCmd   `cmd:"" help:"Install Subtask skill (Claude Code) and configure defaults"`
 	Config    ConfigCmd    `cmd:"" help:"Edit configuration (user defaults or project overrides)"`
-	Uninstall UninstallCmd `cmd:"" help:"Uninstall Subtask skill + plugin (Claude Code)"`
-	Status    StatusCmd    `cmd:"" help:"Show installation status (skill + plugin)"`
+	Uninstall UninstallCmd `cmd:"" help:"Uninstall Subtask skill (Claude Code)"`
+	Status    StatusCmd    `cmd:"" help:"Show installation status (skill)"`
 	Ask       AskCmd       `cmd:"" help:"Ask a question (no task, runs in cwd)"`
 	Draft     DraftCmd     `cmd:"" help:"Create a task without running"`
 	Send      SendCmd      `cmd:"" help:"Send a message to a task"`
@@ -39,8 +40,10 @@ type CLI struct {
 }
 
 func main() {
-	runAutoUpdate()
-	startBinaryAutoUpdate()
+	if !shouldSkipStartupSideEffects(os.Args) {
+		runAutoUpdate()
+		startBinaryAutoUpdate()
+	}
 
 	if len(os.Args) == 1 {
 		if err := runTUIWithInitCheck(); err != nil {
@@ -63,4 +66,16 @@ func main() {
 	)
 	err := ctx.Run()
 	ctx.FatalIfErrorf(err)
+}
+
+func shouldSkipStartupSideEffects(args []string) bool {
+	if len(args) < 3 || args[1] != "install" {
+		return false
+	}
+	for _, a := range args[2:] {
+		if a == "--guide" || strings.HasPrefix(a, "--guide=") {
+			return true
+		}
+	}
+	return false
 }

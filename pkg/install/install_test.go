@@ -11,8 +11,9 @@ import (
 func TestInstallTo_WritesEmbeddedSkill(t *testing.T) {
 	home := t.TempDir()
 
-	path, err := InstallTo(ScopeUser, home)
+	path, updated, err := InstallTo(home)
 	require.NoError(t, err)
+	require.True(t, updated)
 	require.Equal(t, filepath.Join(home, ".claude", "skills", "subtask", "SKILL.md"), path)
 
 	got, err := os.ReadFile(path)
@@ -23,13 +24,13 @@ func TestInstallTo_WritesEmbeddedSkill(t *testing.T) {
 func TestUninstallFrom_RemovesSkillFile(t *testing.T) {
 	home := t.TempDir()
 
-	path, err := InstallTo(ScopeUser, home)
+	path, _, err := InstallTo(home)
 	require.NoError(t, err)
 
 	_, err = os.Stat(path)
 	require.NoError(t, err)
 
-	removedPath, err := UninstallFrom(ScopeUser, home)
+	removedPath, err := UninstallFrom(home)
 	require.NoError(t, err)
 	require.Equal(t, path, removedPath)
 
@@ -40,7 +41,7 @@ func TestUninstallFrom_RemovesSkillFile(t *testing.T) {
 func TestGetSkillStatusFor(t *testing.T) {
 	home := t.TempDir()
 
-	st, err := GetSkillStatusFor(ScopeUser, home)
+	st, err := GetSkillStatusFor(home)
 	require.NoError(t, err)
 	require.False(t, st.Installed)
 	require.False(t, st.UpToDate)
@@ -48,10 +49,10 @@ func TestGetSkillStatusFor(t *testing.T) {
 	require.Len(t, st.EmbeddedSHA256, 64)
 	require.Empty(t, st.InstalledSHA256)
 
-	_, err = InstallTo(ScopeUser, home)
+	_, _, err = InstallTo(home)
 	require.NoError(t, err)
 
-	st, err = GetSkillStatusFor(ScopeUser, home)
+	st, err = GetSkillStatusFor(home)
 	require.NoError(t, err)
 	require.True(t, st.Installed)
 	require.True(t, st.UpToDate)
@@ -60,7 +61,7 @@ func TestGetSkillStatusFor(t *testing.T) {
 	// Drift the installed skill.
 	require.NoError(t, os.WriteFile(st.Path, []byte("different"), 0o644))
 
-	st, err = GetSkillStatusFor(ScopeUser, home)
+	st, err = GetSkillStatusFor(home)
 	require.NoError(t, err)
 	require.True(t, st.Installed)
 	require.False(t, st.UpToDate)
