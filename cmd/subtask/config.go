@@ -14,9 +14,13 @@ import (
 
 // ConfigCmd implements 'subtask config'.
 type ConfigCmd struct {
-	User     bool `help:"Edit user config (~/.subtask/config.json)"`
-	Project  bool `help:"Edit project config (<git-root>/.subtask/config.json)"`
-	NoPrompt bool `help:"Non-interactive; use defaults"`
+	User          bool   `help:"Edit user config (~/.subtask/config.json)"`
+	Project       bool   `help:"Edit project config (<git-root>/.subtask/config.json)"`
+	NoPrompt      bool   `help:"Non-interactive; use defaults"`
+	Harness       string `help:"Worker harness: 'codex', 'claude', or 'opencode'" placeholder:"HARNESS"`
+	Model         string `help:"Default model for workers" placeholder:"MODEL"`
+	Reasoning     string `help:"Reasoning level for Codex: 'low', 'medium', 'high', 'xhigh'" placeholder:"LEVEL"`
+	MaxWorkspaces int    `help:"Max parallel git worktrees per repo (default 20)" placeholder:"N"`
 }
 
 func (c *ConfigCmd) Run() error {
@@ -61,10 +65,14 @@ func (c *ConfigCmd) Run() error {
 
 	existing := readConfigFileOrNil(path)
 	cfg, wrote, err := runConfigWizard(configWizardParams{
-		WritePath: path,
-		RepoRoot:  repoRoot,
-		Existing:  existing,
-		NoPrompt:  c.NoPrompt,
+		WritePath:     path,
+		RepoRoot:      repoRoot,
+		Existing:      existing,
+		NoPrompt:      c.NoPrompt,
+		Harness:       c.Harness,
+		Model:         c.Model,
+		Reasoning:     c.Reasoning,
+		MaxWorkspaces: c.MaxWorkspaces,
 	})
 	if err != nil {
 		return err
@@ -80,15 +88,7 @@ func (c *ConfigCmd) Run() error {
 
 	fmt.Println()
 	fmt.Println(successStyle.Render("  ✓ Config saved"))
-	fmt.Printf("    %s %s\n", subtleStyle.Render("Path:"), path)
-	fmt.Printf("    %s %s\n", subtleStyle.Render("Harness:"), cfg.Harness)
-	if m := stringsTrimSpace(cfg.Options["model"]); m != "" {
-		fmt.Printf("    %s %s\n", subtleStyle.Render("Model:"), m)
-	}
-	if r := stringsTrimSpace(cfg.Options["reasoning"]); r != "" {
-		fmt.Printf("    %s %s\n", subtleStyle.Render("Reasoning:"), r)
-	}
-	fmt.Printf("    %s %d\n", subtleStyle.Render("Max workspaces:"), cfg.MaxWorkspaces)
+	printConfigDetails(cfg, scope, path)
 	fmt.Println()
 	return nil
 }
@@ -115,4 +115,19 @@ func stringsTrimSpace(v any) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
+}
+
+// printConfigDetails prints the config settings in a consistent format.
+func printConfigDetails(cfg *workspace.Config, scope, path string) {
+	// Title case the scope.
+	scopeTitle := strings.ToUpper(scope[:1]) + scope[1:]
+	fmt.Printf("    %s %s %s\n", subtleStyle.Render("Scope:"), scopeTitle, subtleStyle.Render("("+abbreviatePath(path)+")"))
+	fmt.Printf("    %s %s\n", subtleStyle.Render("Harness:"), cfg.Harness)
+	if m := stringsTrimSpace(cfg.Options["model"]); m != "" {
+		fmt.Printf("    %s %s\n", subtleStyle.Render("Model:"), m)
+	}
+	if r := stringsTrimSpace(cfg.Options["reasoning"]); r != "" {
+		fmt.Printf("    %s %s\n", subtleStyle.Render("Reasoning:"), r)
+	}
+	fmt.Printf("    %s %d\n", subtleStyle.Render("Max workspaces:"), cfg.MaxWorkspaces)
 }

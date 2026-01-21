@@ -46,9 +46,23 @@ func Install() (string, bool, error) {
 	return InstallTo(homeDir)
 }
 
-// InstallTo writes the embedded skill to the Claude Code skill location under baseDir.
+// InstallTo writes the embedded skill to the Claude Code skill location under baseDir (user scope).
 func InstallTo(baseDir string) (string, bool, error) {
 	return syncSkillTo(baseDir)
+}
+
+// InstallToProject writes the embedded skill to the project-scoped Claude Code skill location.
+// projectRoot should be the git root of the project.
+func InstallToProject(projectRoot string) (string, bool, error) {
+	return syncSkillToProject(projectRoot)
+}
+
+// ProjectSkillPath returns the Claude Code skill path for project scope.
+func ProjectSkillPath(projectRoot string) string {
+	if projectRoot == "" {
+		return ""
+	}
+	return filepath.Join(projectRoot, ".claude", "skills", "subtask", "SKILL.md")
 }
 
 // Uninstall removes the skill from the Claude Code skill location (user scope).
@@ -142,4 +156,24 @@ func isSkillInstalled(baseDir string) bool {
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+func syncSkillToProject(projectRoot string) (string, bool, error) {
+	path := ProjectSkillPath(projectRoot)
+	if path == "" {
+		return "", false, errors.New("invalid project root")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", false, err
+	}
+
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, embeddedSkill) {
+		return path, false, nil
+	}
+
+	if err := os.WriteFile(path, embeddedSkill, 0o644); err != nil {
+		return "", false, err
+	}
+	return path, true, nil
 }

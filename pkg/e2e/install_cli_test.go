@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -314,10 +315,24 @@ func TestInstall_Guide_DoesNotWriteAnything(t *testing.T) {
 	out := runSubtask(t, bin, cwd, home, "install", "--guide")
 	require.Contains(t, out, "# Setup Subtask")
 
+	// Debug
+	entries, _ := os.ReadDir(home)
+	t.Logf("home dir contents: %v", entries)
+	if st := filepath.Join(home, ".subtask"); fileExists(st) {
+		sub, _ := os.ReadDir(st)
+		t.Logf(".subtask contents: %v", sub)
+	}
+	t.Logf("SUBTASK_DEBUG in test env: %s", os.Getenv("SUBTASK_DEBUG"))
+
 	_, err := os.Stat(filepath.Join(home, ".claude"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 	_, err = os.Stat(filepath.Join(home, ".subtask"))
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func TestAutoUpdate_RepairsDriftOnlyWhenInstalled(t *testing.T) {
@@ -357,6 +372,11 @@ func runSubtask(t *testing.T, bin string, dir string, home string, args ...strin
 			continue
 		}
 		if len(kv) >= 12 && kv[:12] == "USERPROFILE=" {
+			continue
+		}
+		// Filter out debug env var so tests run with predictable logging behavior.
+		if strings.HasPrefix(kv, "SUBTASK_DEBUG=") {
+			t.Logf("filtering out SUBTASK_DEBUG: %q", kv)
 			continue
 		}
 		env = append(env, kv)

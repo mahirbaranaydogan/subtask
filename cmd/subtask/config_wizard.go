@@ -18,6 +18,11 @@ type configWizardParams struct {
 	RepoRoot  string // optional; used only for display/help text
 	Existing  *workspace.Config
 	NoPrompt  bool
+	// Flag overrides (take precedence over defaults and existing config).
+	Harness       string
+	Model         string
+	Reasoning     string
+	MaxWorkspaces int
 }
 
 func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
@@ -37,7 +42,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 	numWorkspaces := workspace.DefaultMaxWorkspaces
 	h := "codex"
 	model := "gpt-5.2"
-	reasoning := "xhigh"
+	reasoning := "high"
 
 	if p.Existing != nil {
 		if p.Existing.MaxWorkspaces > 0 {
@@ -73,6 +78,32 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 	}
 	if h != "codex" {
 		reasoning = ""
+	}
+
+	// Apply flag overrides (take precedence over defaults).
+	if strings.TrimSpace(p.Harness) != "" {
+		h = strings.TrimSpace(p.Harness)
+		// Reset model/reasoning to harness-appropriate defaults when harness is overridden.
+		switch h {
+		case "codex":
+			model = "gpt-5.2"
+			reasoning = "high"
+		case "claude":
+			model = "claude-opus-4-5-20251101"
+			reasoning = ""
+		default:
+			model = ""
+			reasoning = ""
+		}
+	}
+	if strings.TrimSpace(p.Model) != "" {
+		model = strings.TrimSpace(p.Model)
+	}
+	if strings.TrimSpace(p.Reasoning) != "" {
+		reasoning = strings.TrimSpace(p.Reasoning)
+	}
+	if p.MaxWorkspaces > 0 {
+		numWorkspaces = p.MaxWorkspaces
 	}
 
 	if p.NoPrompt {
@@ -162,6 +193,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				form = huh.NewForm(huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Model").
+						Description("Default for workers. Change anytime with: subtask config").
 						Options(opts...).
 						Value(&model),
 				))
@@ -173,6 +205,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				form = huh.NewForm(huh.NewGroup(
 					huh.NewSelect[string]().
 						Title("Model").
+						Description("Default for workers. Change anytime with: subtask config").
 						Options(opts...).
 						Value(&model),
 				))
@@ -180,7 +213,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				form = huh.NewForm(huh.NewGroup(
 					huh.NewInput().
 						Title("Model (optional)").
-						Description("Leave blank to use OpenCode defaults; use provider/model to override.").
+						Description("Default for workers. Leave blank for OpenCode defaults. Change anytime with: subtask config").
 						Placeholder("provider/model").
 						Value(&model),
 				))
@@ -194,30 +227,18 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 			form = huh.NewForm(huh.NewGroup(
 				huh.NewSelect[string]().
 					Title("Reasoning").
+					Description("Default for workers. Change anytime with: subtask config").
 					Options(
-						huh.NewOption("Extra High (recommended)", "xhigh"),
-						huh.NewOption("High", "high"),
+						huh.NewOption("Extra High", "xhigh"),
+						huh.NewOption("High (recommended)", "high"),
 						huh.NewOption("Medium", "medium"),
 						huh.NewOption("Low", "low"),
 					).
 					Value(&reasoning),
 			))
-
-		case 3:
-			form = huh.NewForm(huh.NewGroup(
-				huh.NewSelect[int]().
-					Title("Max workspaces").
-					Options(
-						huh.NewOption("5", 5),
-						huh.NewOption("10", 10),
-						huh.NewOption("20 (recommended)", 20),
-						huh.NewOption("50", 50),
-					).
-					Value(&numWorkspaces),
-			))
 		}
 
-		if step > 3 {
+		if step > 2 {
 			break
 		}
 
@@ -246,7 +267,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 			switch h {
 			case "codex":
 				model = "gpt-5.2"
-				reasoning = "xhigh"
+				reasoning = "high"
 			case "claude":
 				model = "claude-opus-4-5-20251101"
 				reasoning = ""

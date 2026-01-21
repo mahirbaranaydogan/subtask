@@ -208,15 +208,16 @@ func Output(dir string, args ...string) (string, error) {
 	errStr := stderr.String()
 
 	if err != nil {
+		// Check for "not a git repo" first - this is an expected condition, not an error worth logging.
+		if isNotGitRepoOutput(errStr) {
+			return "", subtaskerr.ErrNotGitRepo
+		}
 		if logging.DebugEnabled() {
 			gitCmdBatcher.flushNow()
 			logging.Debug("git", fmt.Sprintf("%s (%s)", strings.Join(args, " "), d.Round(time.Millisecond)))
 			logging.Error("git", fmt.Sprintf("%s error: %s (%s)", strings.Join(args, " "), strings.TrimSpace(errStr), d.Round(time.Millisecond)))
 		} else {
 			logging.Error("git", fmt.Sprintf("%s error: %s", strings.Join(args, " "), strings.TrimSpace(errStr)))
-		}
-		if isNotGitRepoOutput(errStr) {
-			return "", subtaskerr.ErrNotGitRepo
 		}
 		return "", &Error{Dir: dir, Args: args, Stderr: errStr, Cause: err}
 	}
