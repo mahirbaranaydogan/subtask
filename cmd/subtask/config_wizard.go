@@ -1,10 +1,7 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -25,6 +22,146 @@ type configWizardParams struct {
 	MaxWorkspaces int
 }
 
+type configFlags struct {
+	Harness       string
+	Model         string
+	Reasoning     string
+	MaxWorkspaces int
+}
+
+type configValues struct {
+	Harness       string
+	Model         string
+	Reasoning     string
+	MaxWorkspaces int
+}
+
+// resolveConfigValues merges defaults + existing config + CLI flags into a resolved set of values.
+// It is a pure function (no IO) and does not check harness availability on the machine.
+func resolveConfigValues(existing *workspace.Config, flags configFlags) configValues {
+	values := configValues{
+		Harness:       "codex",
+		MaxWorkspaces: workspace.DefaultMaxWorkspaces,
+	}
+
+	if existing != nil {
+		if strings.TrimSpace(existing.Harness) != "" {
+			values.Harness = strings.TrimSpace(existing.Harness)
+		}
+		if existing.MaxWorkspaces > 0 {
+			values.MaxWorkspaces = existing.MaxWorkspaces
+		}
+		if existing.Options != nil {
+			if m := stringsTrimSpace(existing.Options["model"]); m != "" {
+				values.Model = m
+			}
+			if r := stringsTrimSpace(existing.Options["reasoning"]); r != "" {
+				values.Reasoning = r
+			}
+		}
+	}
+
+	// Harness override resets dependent values to harness-appropriate defaults (but still allows
+	// explicit flags to override after).
+	if strings.TrimSpace(flags.Harness) != "" {
+		values.Harness = strings.TrimSpace(flags.Harness)
+		values.Model = ""
+		values.Reasoning = ""
+	}
+	if strings.TrimSpace(flags.Model) != "" {
+		values.Model = strings.TrimSpace(flags.Model)
+	}
+	if strings.TrimSpace(flags.Reasoning) != "" {
+		values.Reasoning = strings.TrimSpace(flags.Reasoning)
+	}
+	if flags.MaxWorkspaces > 0 {
+		values.MaxWorkspaces = flags.MaxWorkspaces
+	}
+
+	// Harness-specific defaults (only when unset).
+	switch strings.TrimSpace(values.Harness) {
+	case "", "codex":
+		values.Harness = "codex"
+		if strings.TrimSpace(values.Model) == "" {
+			values.Model = "gpt-5.2"
+		}
+		if strings.TrimSpace(values.Reasoning) == "" {
+			values.Reasoning = "high"
+		}
+	case "claude":
+		if strings.TrimSpace(values.Model) == "" {
+			values.Model = "claude-opus-4-5-20251101"
+		}
+		// If reasoning came from defaults/existing and the user didn't explicitly set it as a flag,
+		// drop it for non-codex harnesses (keeps config files clean and matches prior behavior).
+		if strings.TrimSpace(flags.Reasoning) == "" {
+			values.Reasoning = ""
+		}
+	case "opencode":
+		if strings.TrimSpace(flags.Reasoning) == "" {
+			values.Reasoning = ""
+		}
+	}
+
+	return values
+}
+
+// validateConfigValues validates resolved values without performing any IO.
+func validateConfigValues(values configValues) error {
+	harnessName := strings.TrimSpace(values.Harness)
+	switch harnessName {
+	case "codex", "claude", "opencode":
+		// ok
+	default:
+		return fmt.Errorf("invalid harness %q\n\nAllowed: codex, claude, opencode", harnessName)
+	}
+
+	if values.MaxWorkspaces < 0 {
+		return fmt.Errorf("max workspaces must be >= 0, got %d", values.MaxWorkspaces)
+	}
+
+	return workspace.ValidateReasoningFlag(harnessName, strings.TrimSpace(values.Reasoning))
+}
+
+// buildConfig creates a workspace.Config from resolved values.
+func buildConfig(values configValues) *workspace.Config {
+	cfg := &workspace.Config{
+		Harness:       strings.TrimSpace(values.Harness),
+		MaxWorkspaces: values.MaxWorkspaces,
+	}
+	if cfg.MaxWorkspaces <= 0 {
+		cfg.MaxWorkspaces = workspace.DefaultMaxWorkspaces
+	}
+
+	model := strings.TrimSpace(values.Model)
+	reasoning := strings.TrimSpace(values.Reasoning)
+	if model != "" || reasoning != "" {
+		cfg.Options = make(map[string]any)
+		if model != "" {
+			cfg.Options["model"] = model
+		}
+		if reasoning != "" {
+			cfg.Options["reasoning"] = reasoning
+		}
+	}
+
+	return cfg
+}
+
+func validateHarnessAvailable(harnessName string) error {
+	if harness.CanResolveCLI(harnessName) {
+		return nil
+	}
+	switch harnessName {
+	case "codex":
+		return fmt.Errorf("codex CLI not found\n\nInstall it from: https://github.com/openai/codex")
+	case "claude":
+		return fmt.Errorf("claude CLI not found\n\nInstall it from: https://claude.com/claude-code")
+	default:
+		return fmt.Errorf("opencode CLI not found\n\nInstall it from: https://github.com/anomalyco/opencode")
+	}
+}
+
 func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 	if strings.TrimSpace(p.WritePath) == "" {
 		return nil, false, fmt.Errorf("config write path is required")
@@ -38,119 +175,52 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		return nil, false, fmt.Errorf("no worker harness available\n\nInstall one of:\n  - Codex CLI: https://github.com/openai/codex\n  - Claude Code CLI: https://claude.com/claude-code\n  - OpenCode CLI: https://github.com/anomalyco/opencode")
 	}
 
-	// Defaults (prefill from existing when possible).
-	numWorkspaces := workspace.DefaultMaxWorkspaces
-	h := "codex"
-	model := "gpt-5.2"
-	reasoning := "high"
-
-	if p.Existing != nil {
-		if p.Existing.MaxWorkspaces > 0 {
-			numWorkspaces = p.Existing.MaxWorkspaces
-		}
-		if strings.TrimSpace(p.Existing.Harness) != "" {
-			h = strings.TrimSpace(p.Existing.Harness)
-		}
-		if m, ok := p.Existing.Options["model"].(string); ok && strings.TrimSpace(m) != "" {
-			model = strings.TrimSpace(m)
-		}
-		if r, ok := p.Existing.Options["reasoning"].(string); ok && strings.TrimSpace(r) != "" {
-			reasoning = strings.TrimSpace(r)
-		}
+	flags := configFlags{
+		Harness:       p.Harness,
+		Model:         p.Model,
+		Reasoning:     p.Reasoning,
+		MaxWorkspaces: p.MaxWorkspaces,
 	}
+	values := resolveConfigValues(p.Existing, flags)
 
-	// Normalize harness defaults to what's installed.
-	if !isCommandAvailable(h) {
+	// If the user didn't explicitly request a harness and the resolved harness isn't available,
+	// fall back to the first available harness and reset dependent defaults.
+	if strings.TrimSpace(flags.Harness) == "" && !isCommandAvailable(values.Harness) {
+		fallbackHarness := "opencode"
 		switch {
 		case codexAvailable:
-			h = "codex"
+			fallbackHarness = "codex"
 		case claudeAvailable:
-			h = "claude"
-		default:
-			h = "opencode"
+			fallbackHarness = "claude"
 		}
-	}
-	if h == "claude" && strings.TrimSpace(model) == "" {
-		model = "claude-opus-4-5-20251101"
-	}
-	if h == "opencode" {
-		reasoning = ""
-	}
-	if h != "codex" {
-		reasoning = ""
-	}
-
-	// Apply flag overrides (take precedence over defaults).
-	if strings.TrimSpace(p.Harness) != "" {
-		h = strings.TrimSpace(p.Harness)
-		// Reset model/reasoning to harness-appropriate defaults when harness is overridden.
-		switch h {
-		case "codex":
-			model = "gpt-5.2"
-			reasoning = "high"
-		case "claude":
-			model = "claude-opus-4-5-20251101"
-			reasoning = ""
-		default:
-			model = ""
-			reasoning = ""
-		}
-	}
-	if strings.TrimSpace(p.Model) != "" {
-		model = strings.TrimSpace(p.Model)
-	}
-	if strings.TrimSpace(p.Reasoning) != "" {
-		reasoning = strings.TrimSpace(p.Reasoning)
-	}
-	if p.MaxWorkspaces > 0 {
-		numWorkspaces = p.MaxWorkspaces
-	}
-
-	validateSelections := func(harnessName, reasoningLevel string) error {
-		harnessName = strings.TrimSpace(harnessName)
-		switch harnessName {
-		case "codex", "claude", "opencode":
-			// ok
-		default:
-			return fmt.Errorf("invalid harness %q\n\nAllowed: codex, claude, opencode", harnessName)
-		}
-
-		// Ensure selected harness is available.
-		if !harness.CanResolveCLI(harnessName) {
-			switch harnessName {
-			case "codex":
-				return fmt.Errorf("codex CLI not found\n\nInstall it from: https://github.com/openai/codex")
-			case "claude":
-				return fmt.Errorf("claude CLI not found\n\nInstall it from: https://claude.com/claude-code")
-			default:
-				return fmt.Errorf("opencode CLI not found\n\nInstall it from: https://github.com/anomalyco/opencode")
-			}
-		}
-
-		return workspace.ValidateReasoningFlag(harnessName, reasoningLevel)
+		values = resolveConfigValues(nil, configFlags{
+			Harness:       fallbackHarness,
+			Model:         flags.Model,
+			Reasoning:     flags.Reasoning,
+			MaxWorkspaces: values.MaxWorkspaces,
+		})
 	}
 
 	if p.NoPrompt {
-		if err := validateSelections(h, reasoning); err != nil {
+		if err := validateConfigValues(values); err != nil {
 			return nil, false, err
 		}
-		cfg := &workspace.Config{
-			Harness:       h,
-			MaxWorkspaces: numWorkspaces,
-			Options:       make(map[string]any),
+		if err := validateHarnessAvailable(strings.TrimSpace(values.Harness)); err != nil {
+			return nil, false, err
 		}
-		if strings.TrimSpace(model) != "" {
-			cfg.Options["model"] = model
-		}
-		if strings.TrimSpace(reasoning) != "" {
-			cfg.Options["reasoning"] = reasoning
-		}
+		cfg := buildConfig(values)
 		if err := cfg.SaveTo(p.WritePath); err != nil {
 			return nil, false, fmt.Errorf("failed to save config: %w", err)
 		}
 		_ = harness.CanResolveCLI(cfg.Harness) // warm discovery
 		return cfg, true, nil
 	}
+
+	// Use resolved defaults to prefill the wizard.
+	h := values.Harness
+	model := values.Model
+	reasoning := values.Reasoning
+	numWorkspaces := values.MaxWorkspaces
 
 	// Interactive wizard (same flow as prior init).
 	firstStep := 0
@@ -307,34 +377,23 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 		step++
 	}
 
+	values = configValues{
+		Harness:       h,
+		Model:         model,
+		Reasoning:     reasoning,
+		MaxWorkspaces: numWorkspaces,
+	}
+
 	// Final validation - ensure selections are valid and harness is available.
-	if err := validateSelections(h, reasoning); err != nil {
+	if err := validateConfigValues(values); err != nil {
+		return nil, false, err
+	}
+	if err := validateHarnessAvailable(strings.TrimSpace(values.Harness)); err != nil {
 		return nil, false, err
 	}
 
-	cfg := &workspace.Config{
-		Harness:       h,
-		MaxWorkspaces: numWorkspaces,
-		Options:       make(map[string]any),
-	}
-	if strings.TrimSpace(model) != "" {
-		cfg.Options["model"] = strings.TrimSpace(model)
-	}
-	if strings.TrimSpace(reasoning) != "" {
-		cfg.Options["reasoning"] = strings.TrimSpace(reasoning)
-	}
-	if cfg.MaxWorkspaces <= 0 {
-		cfg.MaxWorkspaces = workspace.DefaultMaxWorkspaces
-	}
-
-	if err := os.MkdirAll(filepath.Dir(p.WritePath), 0o755); err != nil {
-		return nil, false, fmt.Errorf("failed to create config directory: %w", err)
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to marshal config: %w", err)
-	}
-	if err := os.WriteFile(p.WritePath, data, 0o644); err != nil {
+	cfg := buildConfig(values)
+	if err := cfg.SaveTo(p.WritePath); err != nil {
 		return nil, false, fmt.Errorf("failed to save config: %w", err)
 	}
 
