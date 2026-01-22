@@ -13,9 +13,10 @@ import (
 // ReviewCmd implements 'subtask review'.
 type ReviewCmd struct {
 	// Target selection (mutually exclusive)
-	Task        string `help:"Review task changes against its base branch"`
+	Task        string `help:"Review changes in a task workspace against that task's base branch"`
+	Base        string `help:"Review changes on the current branch against BRANCH (PR-style diff via merge-base; BRANCH must be a valid git ref)"`
 	Uncommitted bool   `help:"Review uncommitted changes (staged, unstaged, untracked)"`
-	Commit      string `help:"Review changes introduced by a specific commit"`
+	Commit      string `help:"Review changes introduced by a specific commit SHA"`
 
 	// Optional instructions
 	Prompt string `arg:"" optional:"" help:"Additional review instructions (or use stdin)"`
@@ -38,20 +39,23 @@ func (c *ReviewCmd) WithHarness(h harness.Harness) *ReviewCmd {
 func (c *ReviewCmd) Run() error {
 	// Validate mutually exclusive flags
 	count := 0
-	if c.Task != "" {
+	if strings.TrimSpace(c.Task) != "" {
+		count++
+	}
+	if strings.TrimSpace(c.Base) != "" {
 		count++
 	}
 	if c.Uncommitted {
 		count++
 	}
-	if c.Commit != "" {
+	if strings.TrimSpace(c.Commit) != "" {
 		count++
 	}
 	if count > 1 {
-		return fmt.Errorf("--task, --uncommitted, and --commit are mutually exclusive")
+		return fmt.Errorf("--task, --base, --uncommitted, and --commit are mutually exclusive")
 	}
 	if count == 0 {
-		return fmt.Errorf("specify one of: --task <name>, --uncommitted, or --commit <sha>")
+		return fmt.Errorf("specify one of: --task <name>, --base <branch>, --uncommitted, or --commit <sha>")
 	}
 
 	// Read instructions from arg or stdin
@@ -76,24 +80,32 @@ func (c *ReviewCmd) Run() error {
 	var target harness.ReviewTarget
 
 	switch {
-	case c.Task != "":
+	case strings.TrimSpace(c.Task) != "":
+		taskName := strings.TrimSpace(c.Task)
 		// Load task (for base branch)
-		t, err := task.Load(c.Task)
+		t, err := task.Load(taskName)
 		if err != nil {
-			return fmt.Errorf("failed to load task %q: %w", c.Task, err)
+			return fmt.Errorf("failed to load task %q: %w", taskName, err)
 		}
 
 		// Load state (for workspace)
-		state, err := task.LoadState(c.Task)
+		state, err := task.LoadState(taskName)
 		if err != nil {
 			return err
 		}
 		if state == nil || state.Workspace == "" {
-			return fmt.Errorf("task %q has no workspace\n\nRun the task first:\n  subtask send %s \"...\"", c.Task, c.Task)
+			return fmt.Errorf("task %q has no workspace\n\nRun the task first:\n  subtask send %s \"...\"", taskName, taskName)
 		}
 
 		cwd = state.Workspace
 		target = harness.ReviewTarget{BaseBranch: t.BaseBranch}
+
+	case strings.TrimSpace(c.Base) != "":
+		cwd, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("failed to get working directory: %w", err)
+		}
+		target = harness.ReviewTarget{BaseBranch: strings.TrimSpace(c.Base)}
 
 	case c.Uncommitted:
 		cwd, err = os.Getwd()
@@ -102,12 +114,12 @@ func (c *ReviewCmd) Run() error {
 		}
 		target = harness.ReviewTarget{Uncommitted: true}
 
-	case c.Commit != "":
+	case strings.TrimSpace(c.Commit) != "":
 		cwd, err = os.Getwd()
 		if err != nil {
 			return fmt.Errorf("failed to get working directory: %w", err)
 		}
-		target = harness.ReviewTarget{Commit: c.Commit}
+		target = harness.ReviewTarget{Commit: strings.TrimSpace(c.Commit)}
 	}
 
 	// Run review

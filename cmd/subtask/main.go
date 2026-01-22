@@ -32,7 +32,7 @@ type CLI struct {
 	Close     CloseCmd     `cmd:"" help:"Close a task and free workspace"`
 	Merge     MergeCmd     `cmd:"" help:"Merge task into base branch (marks as merged)"`
 	Workspace WorkspaceCmd `cmd:"" help:"Print workspace path for a task"`
-	Review    ReviewCmd    `cmd:"" help:"Get review of task changes"`
+	Review    ReviewCmd    `cmd:"" help:"Get an AI code review"`
 	Trace     LogsCmd      `cmd:"" help:"Debug worker runs (tool calls, errors)"`
 	Logs      LogsCmd      `cmd:"" help:"Alias for trace" hidden:""`
 	Interrupt InterruptCmd `cmd:"" aliases:"stop" help:"Gracefully stop a working worker for a task"`

@@ -81,6 +81,24 @@ func TestReviewCmd_Uncommitted(t *testing.T) {
 	assert.True(t, call.Target.Uncommitted)
 }
 
+func TestReviewCmd_BaseBranch(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	reviewMock := harness.NewMockHarness().WithReviewResult("No issues")
+
+	stdout, stderr, err := captureStdoutStderr(t, (&ReviewCmd{
+		Base: " main ",
+	}).WithHarness(reviewMock).Run)
+
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+	assert.Contains(t, stdout, "No issues")
+
+	require.Len(t, reviewMock.ReviewCalls, 1)
+	call := reviewMock.ReviewCalls[0]
+	assert.Equal(t, "main", call.Target.BaseBranch)
+}
+
 func TestReviewCmd_Commit(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 
@@ -103,7 +121,7 @@ func TestReviewCmd_MutuallyExclusive(t *testing.T) {
 	_ = testutil.NewTestEnv(t, 0)
 
 	_, _, err := captureStdoutStderr(t, (&ReviewCmd{
-		Task:        "some-task",
+		Base:        "main",
 		Uncommitted: true,
 	}).Run)
 
