@@ -49,9 +49,9 @@ Run `subtask` in your terminal to see everything:
   </tr>
 </table>
 
-## Install
+## Setup
 
-### Get the CLI
+### Install the CLI
 
 #### Mac/Linux
 
@@ -86,7 +86,7 @@ go install github.com/zippoxer/subtask/cmd/subtask@latest
 
 </details>
 
-### Install the Claude Code Skill
+### Install the Skill
 
 Tell Claude Code:
 ```bash
@@ -104,7 +104,7 @@ subtask install
 
 </details>
 
-### Optional: Install Plugin
+### Install the Plugin (Optional)
 
 The plugin adds lightweight hooks to remind Claude to use the Subtask skill when it invokes the CLI.
 
