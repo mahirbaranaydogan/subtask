@@ -88,35 +88,29 @@ go install github.com/zippoxer/subtask/cmd/subtask@latest
 
 ### Install the Claude Code Skill
 
+Tell Claude Code:
+```bash
+Install Subtask with `subtask install --guide`.
+```
+
+<details>
+<summary>Or install manually…</summary>
 ```bash
 subtask install
 
 # Tip: Uninstall later with `subtask uninstall`.
 ```
+</details>
 
-Restart Claude Code.
+### Optional: Install Plugin
 
-### Setup Guide
-
-```bash
-subtask install --guide
-```
-
-### Optional: Install Plugin (skill reminders)
-
-The plugin adds hooks that remind Claude to use the Subtask skill.
+The plugin adds lightweight hooks to remind Claude to use the Subtask skill when it invokes the CLI.
 
 In Claude Code:
 
 ```
 /plugin marketplace add zippoxer/subtask
 /plugin install subtask@subtask
-```
-
-### Optional: project overrides
-
-```bash
-subtask config --project
 ```
 
 ## Use
