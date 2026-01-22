@@ -116,12 +116,12 @@ func (c *InstallCmd) Run() error {
 
 func printSetupGuide() {
 	type guideData struct {
-		InGitRepo         bool
-		CodexAvailable    bool
-		ClaudeAvailable   bool
-		OpencodeAvailable bool
+		InGitRepo           bool
+		CodexAvailable      bool
+		ClaudeAvailable     bool
+		OpencodeAvailable   bool
 		AnyHarnessAvailable bool
-		MultipleHarnesses bool
+		MultipleHarnesses   bool
 	}
 
 	data := guideData{
@@ -131,9 +131,15 @@ func printSetupGuide() {
 		OpencodeAvailable: isCommandAvailable("opencode"),
 	}
 	count := 0
-	if data.CodexAvailable { count++ }
-	if data.ClaudeAvailable { count++ }
-	if data.OpencodeAvailable { count++ }
+	if data.CodexAvailable {
+		count++
+	}
+	if data.ClaudeAvailable {
+		count++
+	}
+	if data.OpencodeAvailable {
+		count++
+	}
 	data.AnyHarnessAvailable = count > 0
 	data.MultipleHarnesses = count > 1
 
@@ -143,7 +149,7 @@ func printSetupGuide() {
 
 ## Environment
 
-{{if .InGitRepo}}✓ In a git repository{{else}}✗ Not in a git repository (Subtask requires one to work){{end}}
+{{if .InGitRepo}}✓ In a git repository{{else}}⚠ Not in a git repository (you'll need one later to create tasks){{end}}
 
 **Available worker harnesses:**
 {{if .CodexAvailable}}- ✓ Codex CLI (recommended)
@@ -182,8 +188,7 @@ subtask install --no-prompt
 {{end}}
 ## Ready
 {{if not .InGitRepo}}
-**Note:** Subtask requires a git repository. Ask the user which repo to use, or if they'd like to initialize one here with ` + "`git init`" + `.
-
+**Before creating tasks:** You're not in a git repository. If this looks like a project directory, offer to run ` + "`git init`" + `. Otherwise, ask the user where their project is.
 {{end}}After install, load the Subtask skill with ` + "`/subtask`" + ` to get the full workflow instructions.
 
 Then suggest example tasks adapted to the project, like:
