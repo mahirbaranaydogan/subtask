@@ -106,14 +106,12 @@ subtask install
 
 ### Install the Plugin (Optional)
 
-The plugin adds lightweight hooks to remind Claude to use the Subtask skill when it invokes the CLI.
-
 In Claude Code:
-
 ```
 /plugin marketplace add zippoxer/subtask
 /plugin install subtask@subtask
 ```
+This reminds Claude to use the Subtask skill when it invokes the CLI.
 
 ## Use
 
