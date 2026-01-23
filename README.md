@@ -50,6 +50,8 @@ Run `subtask` in your terminal to see everything:
 </table>
 
 ## Install
+> [!NOTE]  
+> Subtask is in early development. Upcoming releases will simplify installation, solve known bugs, and eliminate common frustrations for Claude.
 
 ### Get the CLI
 
