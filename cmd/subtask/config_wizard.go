@@ -90,7 +90,7 @@ func resolveConfigValues(existing *workspace.Config, flags configFlags) configVa
 		}
 	case "claude":
 		if strings.TrimSpace(values.Model) == "" {
-			values.Model = "claude-opus-4-5-20251101"
+			values.Model = "opus"
 		}
 		// If reasoning came from defaults/existing and the user didn't explicitly set it as a flag,
 		// drop it for non-codex harnesses (keeps config files clean and matches prior behavior).
@@ -296,8 +296,8 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				))
 			} else if h == "claude" {
 				opts := []huh.Option[string]{
-					huh.NewOption("Claude Opus (recommended)", "claude-opus-4-5-20251101"),
-					huh.NewOption("Claude Sonnet", "claude-sonnet-4-20250514"),
+					huh.NewOption("Opus (recommended)", "opus"),
+					huh.NewOption("Sonnet", "sonnet"),
 				}
 				form = huh.NewForm(huh.NewGroup(
 					huh.NewSelect[string]().
@@ -366,7 +366,7 @@ func runConfigWizard(p configWizardParams) (*workspace.Config, bool, error) {
 				model = "gpt-5.2"
 				reasoning = "high"
 			case "claude":
-				model = "claude-opus-4-5-20251101"
+				model = "opus"
 				reasoning = ""
 			default:
 				model = ""

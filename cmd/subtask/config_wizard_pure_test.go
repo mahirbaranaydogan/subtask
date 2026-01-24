@@ -26,7 +26,7 @@ func TestResolveConfigValues_ExistingClaude_DefaultsModel_DropsReasoning(t *test
 	}
 	values := resolveConfigValues(existing, configFlags{})
 	require.Equal(t, "claude", values.Harness)
-	require.Equal(t, "claude-opus-4-5-20251101", values.Model)
+	require.Equal(t, "opus", values.Model)
 	require.Empty(t, values.Reasoning)
 	require.Equal(t, 7, values.MaxWorkspaces)
 }
@@ -41,7 +41,7 @@ func TestResolveConfigValues_FlagsHarnessOverride_ResetsDependentDefaults(t *tes
 	}
 	values := resolveConfigValues(existing, configFlags{Harness: "claude"})
 	require.Equal(t, "claude", values.Harness)
-	require.Equal(t, "claude-opus-4-5-20251101", values.Model)
+	require.Equal(t, "opus", values.Model)
 	require.Empty(t, values.Reasoning)
 }
 
