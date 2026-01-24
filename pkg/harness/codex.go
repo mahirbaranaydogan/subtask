@@ -68,7 +68,7 @@ func processCodexJSONLLine(line []byte, result *Result, cb Callbacks) {
 			}
 		}
 
-	case "item.completed":
+		case "item.completed":
 		if event.Item != nil && event.Item.Type == "agent_message" {
 			result.AgentReplied = true
 			// Note: We also read from -o file, but capture here too.
@@ -80,10 +80,18 @@ func processCodexJSONLLine(line []byte, result *Result, cb Callbacks) {
 	case "error":
 		result.Error = event.Message
 
+	case "turn.completed":
+		// Codex may emit transient "error" events (e.g. brief network failures)
+		// even when the overall turn succeeds. If the turn completed, treat any
+		// prior stream error as recovered.
+		result.Error = ""
+		result.TurnFailed = false
+
 	case "turn.failed":
 		if event.Error != nil {
 			result.Error = event.Error.Message
 		}
+		result.TurnFailed = true
 	}
 }
 
@@ -260,9 +268,13 @@ func (c *CodexHarness) runCodexCommand(ctx context.Context, cwd string, flags, p
 		}
 	}
 
-	// If we got an error event, return it even if exit code was 0
-	if result.Error != "" {
-		return result, fmt.Errorf("codex error: %s", result.Error)
+	successReply := strings.TrimSpace(result.Reply) != ""
+
+	// Codex can emit transient "error" events during a successful run (e.g. it retries
+	// internally). If we have a successful exit code and a valid final reply, treat any
+	// remaining stream error as recovered.
+	if result.Error != "" && !result.TurnFailed && cmdErr == nil && successReply {
+		result.Error = ""
 	}
 
 	// If command failed and we don't have a specific error, use generic message
@@ -274,10 +286,15 @@ func (c *CodexHarness) runCodexCommand(ctx context.Context, cwd string, flags, p
 		return result, fmt.Errorf("codex failed: %w", cmdErr)
 	}
 
+	// If we got an error event and we don't have a success signal, return it.
+	if result.Error != "" {
+		return result, fmt.Errorf("codex error: %s", result.Error)
+	}
+
 	// Defensive: avoid treating "success with empty reply" as a successful run.
 	// When this happens, it usually indicates a CLI/harness mismatch (e.g., output file not
 	// written, JSON stream parsing interrupted, etc.).
-	if strings.TrimSpace(result.Reply) == "" {
+	if !successReply {
 		var parts []string
 		parts = append(parts, "codex produced empty reply")
 		if tmpPath != "" {
