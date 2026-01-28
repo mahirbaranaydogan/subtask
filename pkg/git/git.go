@@ -686,13 +686,115 @@ func extractConflictLines(output string) string {
 	return strings.Join(lines, "\n")
 }
 
-// LocalPush fast-forwards targetBranch to current HEAD via local push.
-// Uses receive.denyCurrentBranch=updateInstead to allow pushing to a checked-out branch.
-// This works even if targetBranch is checked out in the main worktree.
+func worktreePathsForBranch(dir, branch string) ([]string, error) {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil, nil
+	}
+
+	out, err := Output(dir, "worktree", "list", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return nil, nil
+	}
+
+	want := "refs/heads/" + branch
+
+	var (
+		currentPath   string
+		currentBranch string
+		paths         []string
+	)
+	flush := func() {
+		if currentPath != "" && currentBranch == want {
+			paths = append(paths, currentPath)
+		}
+		currentPath = ""
+		currentBranch = ""
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			flush()
+			continue
+		}
+
+		if strings.HasPrefix(line, "worktree ") {
+			// New record (flush previous, then start).
+			flush()
+			currentPath = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
+			continue
+		}
+		if strings.HasPrefix(line, "branch ") {
+			currentBranch = strings.TrimSpace(strings.TrimPrefix(line, "branch "))
+			continue
+		}
+	}
+	flush()
+
+	return paths, nil
+}
+
+// LocalPush fast-forwards targetBranch to current HEAD.
+//
+// If targetBranch is checked out in another worktree (e.g. the user's main worktree),
+// update it using a fast-forward merge so local uncommitted changes are preserved when
+// they don't overlap (git-like behavior).
+//
+// If targetBranch is not checked out anywhere, update only the ref.
 func LocalPush(dir, targetBranch string) error {
-	return RunSilent(dir, "push",
-		"--receive-pack=git -c receive.denyCurrentBranch=updateInstead receive-pack",
-		".", "HEAD:"+targetBranch)
+	targetBranch = strings.TrimSpace(targetBranch)
+	if targetBranch == "" {
+		return fmt.Errorf("targetBranch is required")
+	}
+
+	head, err := Output(dir, "rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	head = strings.TrimSpace(head)
+	if head == "" {
+		return fmt.Errorf("failed to resolve HEAD")
+	}
+
+	old, err := Output(dir, "rev-parse", targetBranch)
+	if err != nil {
+		return err
+	}
+	old = strings.TrimSpace(old)
+	if old == "" {
+		return fmt.Errorf("failed to resolve %s", targetBranch)
+	}
+
+	ok, err := IsAncestor(dir, old, head)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("cannot fast-forward %s to %s (not a descendant)", targetBranch, head)
+	}
+
+	paths, err := worktreePathsForBranch(dir, targetBranch)
+	if err != nil {
+		return err
+	}
+	if len(paths) > 1 {
+		return fmt.Errorf("cannot fast-forward %s: branch is checked out in multiple worktrees (%s)", targetBranch, strings.Join(paths, ", "))
+	}
+	if len(paths) == 1 {
+		wt := paths[0]
+		if err := RunSilent(wt, "merge", "--ff-only", head); err != nil {
+			return fmt.Errorf("failed to fast-forward %s in %s: %w", targetBranch, wt, err)
+		}
+		return nil
+	}
+
+	// Ref-only update (not checked out anywhere). Use the expected old SHA to avoid races.
+	return RunSilent(dir, "update-ref", "-m", "subtask merge", "refs/heads/"+targetBranch, head, old)
 }
 
 // IntegrationReason describes why a branch is considered integrated into target.
