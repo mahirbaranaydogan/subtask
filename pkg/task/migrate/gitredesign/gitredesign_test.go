@@ -32,6 +32,46 @@ func TestEnsure_SkipsTasksAtCurrentSchemaWithoutReadingHistory(t *testing.T) {
 	require.NoError(t, gitredesign.Ensure(repoDir))
 }
 
+func TestEnsure_WritesRepoMarkerAfterSuccessfulRun(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	taskName := "migrate/marker"
+	env.CreateTask(taskName, "Marker", "main", "desc") // schema=gitredesign.TaskSchemaVersion
+
+	markerPath := filepath.Join(task.ProjectsDir(), task.EscapePath(repoDir), "migrations", "gitredesign-v1.done")
+	_, err := os.Stat(markerPath)
+	require.Error(t, err)
+
+	require.NoError(t, gitredesign.Ensure(repoDir))
+	require.FileExists(t, markerPath)
+}
+
+func TestEnsure_SkipsAllWorkWhenRepoMarkerExists(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	repoDir := env.RootDir
+
+	taskName := "migrate/marker-skip"
+	env.CreateTask(taskName, "Marker skip", "main", "desc")
+
+	markerPath := filepath.Join(task.ProjectsDir(), task.EscapePath(repoDir), "migrations", "gitredesign-v1.done")
+	require.NoError(t, os.MkdirAll(filepath.Dir(markerPath), 0o755))
+	require.NoError(t, os.WriteFile(markerPath, []byte("ok\n"), 0o644))
+
+	// Break task.List() by making ".subtask/tasks" a file. Ensure should still succeed
+	// because it should exit before scanning tasks when the marker exists.
+	tasksDir := filepath.Join(repoDir, ".subtask", "tasks")
+	bak := tasksDir + ".bak"
+	require.NoError(t, os.Rename(tasksDir, bak))
+	require.NoError(t, os.WriteFile(tasksDir, []byte("not a dir"), 0o644))
+	t.Cleanup(func() {
+		_ = os.Remove(tasksDir)
+		_ = os.Rename(bak, tasksDir)
+	})
+
+	require.NoError(t, gitredesign.Ensure(repoDir))
+}
+
 func TestEnsure_BackfillsAndBumpsSchema_Idempotent(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	repoDir := env.RootDir

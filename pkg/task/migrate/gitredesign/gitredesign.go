@@ -3,9 +3,12 @@ package gitredesign
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/zippoxer/subtask/internal/filelock"
 	"github.com/zippoxer/subtask/pkg/git"
 	"github.com/zippoxer/subtask/pkg/logging"
 	"github.com/zippoxer/subtask/pkg/task"
@@ -20,6 +23,8 @@ import (
 // them to schema=2 by backfilling missing git redesign fields.
 const TaskSchemaVersion = 2
 
+const repoDoneMarkerName = "gitredesign-v1.done"
+
 // Ensure performs a best-effort, idempotent migration to support the git redesign:
 // - Backfills missing base_commit in the most recent task.opened event.
 // - Backfills frozen change stats in task.merged / task.closed events when missing.
@@ -30,15 +35,104 @@ func Ensure(repoDir string) error {
 	if repoDir == "" {
 		return nil
 	}
+	repoDir = canonicalRepoDir(repoDir)
 
-	taskNames, err := task.List()
-	if err != nil {
-		return err
-	}
-	if len(taskNames) == 0 {
+	paths := repoMigrationPaths(repoDir)
+	if markerExists(paths.doneMarkerPath) {
 		return nil
 	}
 
+	// Best-effort: if we can lock, do the scan/migration once per repo and persist a marker.
+	// If we cannot lock or create runtime state, fall back to the legacy behavior (scan tasks
+	// every time) rather than failing the CLI.
+	if err := os.MkdirAll(paths.projectDir, 0o755); err == nil {
+		lockFile, err := os.OpenFile(paths.lockPath, os.O_CREATE|os.O_RDWR, 0o644)
+		if err == nil {
+			defer func() { _ = lockFile.Close() }()
+			if err := filelock.LockExclusive(lockFile); err == nil {
+				defer func() { _ = filelock.Unlock(lockFile) }()
+
+				if markerExists(paths.doneMarkerPath) {
+					return nil
+				}
+
+				hadErrors, err := migrateAllTasks(repoDir)
+				if err != nil {
+					return err
+				}
+				if !hadErrors {
+					if err := writeDoneMarker(paths.doneMarkerPath); err != nil {
+						logging.Error("migrate", fmt.Sprintf("gitredesign write marker err=%v", err))
+					}
+				}
+				return nil
+			}
+		}
+	}
+
+	// Fallback path: legacy behavior without persistent marker/locking.
+	_, err := migrateAllTasks(repoDir)
+	return err
+}
+
+type repoPaths struct {
+	projectDir     string
+	lockPath       string
+	doneMarkerPath string
+}
+
+func repoMigrationPaths(repoDir string) repoPaths {
+	projectDir := filepath.Join(task.ProjectsDir(), task.EscapePath(repoDir))
+	return repoPaths{
+		projectDir:     projectDir,
+		lockPath:       filepath.Join(projectDir, "migrate.lock"),
+		doneMarkerPath: filepath.Join(projectDir, "migrations", repoDoneMarkerName),
+	}
+}
+
+func canonicalRepoDir(repoDir string) string {
+	repoDir = filepath.Clean(strings.TrimSpace(repoDir))
+	if repoDir == "" {
+		return ""
+	}
+	if abs, err := filepath.Abs(repoDir); err == nil {
+		repoDir = abs
+	}
+	return repoDir
+}
+
+func markerExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
+}
+
+func writeDoneMarker(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	_, _ = f.WriteString(time.Now().UTC().Format(time.RFC3339Nano) + "\n")
+	return nil
+}
+
+func migrateAllTasks(repoDir string) (bool, error) {
+	taskNames, err := task.List()
+	if err != nil {
+		return true, err
+	}
+	if len(taskNames) == 0 {
+		return false, nil
+	}
+
+	hadErrors := false
 	for _, name := range taskNames {
 		// Fast path: schema already indicates the redesign migration has been applied.
 		// This avoids per-task locks and full history parses on every CLI command.
@@ -50,20 +144,23 @@ func Ensure(repoDir string) error {
 		// Ensure schema/history exist (locks internally).
 		if err := taskmigrate.EnsureSchema(name); err != nil {
 			logging.Error("migrate", fmt.Sprintf("gitredesign ensure schema task=%s err=%v", name, err))
+			hadErrors = true
 			continue
 		}
 		if err := migrateTask(repoDir, name); err != nil {
 			logging.Error("migrate", fmt.Sprintf("gitredesign task=%s err=%v", name, err))
+			hadErrors = true
 			continue
 		}
 
 		// Mark as migrated so subsequent runs can skip this task entirely.
 		if err := bumpTaskSchema(name, TaskSchemaVersion); err != nil {
 			logging.Error("migrate", fmt.Sprintf("gitredesign bump schema task=%s err=%v", name, err))
+			hadErrors = true
 		}
 	}
 
-	return nil
+	return hadErrors, nil
 }
 
 func bumpTaskSchema(taskName string, version int) error {
