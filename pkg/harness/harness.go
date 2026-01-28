@@ -17,6 +17,7 @@ type Result struct {
 	PromptDelivered bool   // True if session started (thread.started seen)
 	AgentReplied    bool   // True if agent sent a message
 	Error           string // Non-empty if execution failed
+	TurnFailed      bool   // True if a turn.failed event was observed (Codex)
 }
 
 // Callbacks for harness events.
