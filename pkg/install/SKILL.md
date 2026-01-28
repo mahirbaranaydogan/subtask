@@ -11,6 +11,8 @@ Each worker runs in an isolated git worktree. They can't conflict with each othe
 
 The user tells you what they need. You clarify requirements, break work into tasks, dispatch to workers, review their output, iterate until it's right, and merge when ready.
 
+Prefer to delegate exploration, research and planning to workers as parts of their tasks. Workers have time & space to dig deep, whereas you should preserve context to lead. Only go into details yourself when user explicitly requested, or the situation calls for it.
+
 ## Mindset
 
 1. **Understand before delegating** — ask questions, clarify requirements. Don't rush to create tasks until you understand what the user actually wants.
@@ -41,7 +43,7 @@ The user tells you what they need. You clarify requirements, break work into tas
 ## Flow
 
 ```bash
-# 1. Draft (task description is shared with worker)
+# 1. Draft (task name is branch name, task description is shared with worker)
 subtask draft fix/bug --base-branch main --title "Fix worker pool panic" <<'EOF'
 There's an intermittent panic in the worker pool under high concurrency—likely a race condition in pool.go.
 Reproduce, find root cause, fix, and add tests.
@@ -52,7 +54,7 @@ subtask send fix/bug "Go ahead."
 
 # 3. When worker finishes, review and iterate
 subtask stage fix/bug review
-# Review with `subtask diff fix/bug`, or read the files at `cd $(subtask workspace fix/bug)`.
+# Review with `subtask diff --stat fix/bug`, or read the files at `cd $(subtask workspace fix/bug)`.
 
 # 4. Request changes if needed
 subtask send fix/bug <<'EOF'
