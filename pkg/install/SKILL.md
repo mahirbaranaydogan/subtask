@@ -27,7 +27,7 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask ask "..."` | Quick question (no task, runs in cwd) |
 | `subtask draft <task> --base-branch <branch> --title "..." <<'EOF'` | Create a task |
 | `subtask send <task> <prompt>` | Prompt worker on task (blocks until reply) |
-| `subtask send <task> --async <prompt>` | Dispatch and return immediately |
+| `subtask send --async <task> <prompt>` | Dispatch and return immediately |
 | `subtask wait <task>` | Wait for async task, print output file path |
 | `subtask stage <task> <stage>` | Advance workflow stage |
 | `subtask list` | View all tasks |
@@ -70,8 +70,8 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 ```
 
 **Critical:** To dispatch work without blocking:
-1. Run `subtask send <task> --async "prompt"` directly (returns immediately)
-2. Spawn `Task(subagent_type: "Bash", prompt: "Execute verbatim: subtask wait <task>", run_in_background: true, max_turns: 1, model: "haiku")` (blocks until done)
+1. Run `subtask send --async <task> "prompt"` directly (returns immediately)
+2. Spawn `Task(subagent_type: "Bash", prompt: "Run this command exactly as written, do not modify: 'subtask wait <task>'", run_in_background: true, max_turns: 1, model: "haiku")` (blocks until done)
 3. When notified, read the output file path returned by `send` (or use `subtask log <task>` if you missed it)
 
 Tell the user you're waiting and stop. Don't poll or check. You'll be notified when done.
