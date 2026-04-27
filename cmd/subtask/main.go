@@ -36,6 +36,7 @@ type CLI struct {
 	Trace     LogsCmd      `cmd:"" help:"Debug worker runs (tool calls, errors)"`
 	Logs      LogsCmd      `cmd:"" help:"Alias for trace" hidden:""`
 	Interrupt InterruptCmd `cmd:"" aliases:"stop" help:"Gracefully stop a working worker for a task"`
+	Notify    NotifyCmd    `cmd:"" help:"Send desktop notifications for worker replies"`
 	Update    UpdateCmd    `cmd:"" help:"Update subtask to the latest release"`
 }
 

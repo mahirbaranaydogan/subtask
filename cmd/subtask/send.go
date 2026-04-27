@@ -338,6 +338,13 @@ func (c *SendCmd) Run() error {
 
 		logging.Error("harness", fmt.Sprintf("task=%s %s error: %s", c.Task, cfg.Harness, errMsg))
 		logging.Info("worker", fmt.Sprintf("task=%s finished outcome=error duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
+		notifyWorkerFinished(workerNotification{
+			Task:      c.Task,
+			Outcome:   "error",
+			Error:     errMsg,
+			Duration:  time.Duration(durationMS) * time.Millisecond,
+			ToolCalls: int(runToolCalls.Load()),
+		})
 		return runErr
 	}
 
@@ -381,6 +388,12 @@ func (c *SendCmd) Run() error {
 	})
 
 	logging.Info("worker", fmt.Sprintf("task=%s finished outcome=replied duration=%s", c.Task, finished.Sub(started).Round(time.Second)))
+	notifyWorkerFinished(workerNotification{
+		Task:      c.Task,
+		Outcome:   "replied",
+		Duration:  time.Duration(durationMS) * time.Millisecond,
+		ToolCalls: int(runToolCalls.Load()),
+	})
 
 	if c.Quiet {
 		if reply != "" {
