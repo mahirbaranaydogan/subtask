@@ -67,7 +67,7 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
 
-**Critical:** Use the Bash tool with `run_in_background: true` for `subtask send`. Tell the user you're waiting and stop. Don't poll or check. You'll be notified when done.
+**Critical for Codex:** `subtask send` may send a macOS notification when a worker finishes, but it does not automatically wake a Codex thread by itself. Keep the project watcher (`subtask notify --watch`) running for desktop notifications, and actively review replied tasks before advancing stages.
 
 ## Merging
 
