@@ -1,6 +1,6 @@
 ---
 name: subtask
-description: "Parallel task orchestration CLI that dispatches work to AI workers (via Claude Code) in isolated git workspaces. Use when the user wants to draft, create, run, or manage tasks, delegate tasks to workers/subagents, or mentions subtask or Subtask."
+description: "Parallel task orchestration CLI that dispatches work to AI workers in isolated git workspaces. Use when the user wants to draft, create, run, or manage tasks, delegate tasks to workers/subagents, or mentions subtask or Subtask."
 ---
 
 # Subtask
@@ -97,6 +97,22 @@ For complex tasks, add a plan stage: `plan → implement → review → ready`
 
 **You plan (`--workflow you-plan`):** You draft PLAN.md in task folder, worker reviews and pokes holes.
 **They plan (`--workflow they-plan`):** Worker drafts PLAN.md in task folder, you review and approve or request changes.
+
+If the user asks for `plan → implement → review`, or says the same worker should plan and then implement because it owns the context, draft with `--workflow they-plan`. Do not simulate this by naming the task `*-plan` while using the default workflow.
+
+Correct:
+```bash
+subtask draft feature/name --base-branch main --workflow they-plan --title "Build feature name" <<'EOF'
+...
+EOF
+```
+
+After the worker replies with the plan:
+1. Review `PLAN.md`.
+2. Request changes if needed with `subtask send <task> "..."`
+3. Only after approving the plan, run `subtask stage <task> implement`.
+4. Then send the implementation prompt to the same task/worker context.
+5. Do not merge until the task reaches `ready`.
 
 ## Notes
 

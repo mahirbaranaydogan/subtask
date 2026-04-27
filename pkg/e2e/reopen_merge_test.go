@@ -46,6 +46,11 @@ func TestMerge_ReopenMergedTask_MergeAgain(t *testing.T) {
 	run(t, ws1, "git", "add", "one.txt")
 	run(t, ws1, "git", "commit", "-m", "Add one")
 
+	cmd = exec.Command(binPath, "stage", taskName, "ready")
+	cmd.Dir = root
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, "stage ready failed: %s", out)
+
 	cmd = exec.Command(binPath, "merge", taskName, "-m", "Merge one")
 	cmd.Dir = root
 	out, err = cmd.CombinedOutput()
@@ -77,6 +82,11 @@ func TestMerge_ReopenMergedTask_MergeAgain(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(st2.Workspace, "two.txt"), []byte("two\n"), 0o644))
 	run(t, st2.Workspace, "git", "add", "two.txt")
 	run(t, st2.Workspace, "git", "commit", "-m", "Add two")
+
+	cmd = exec.Command(binPath, "stage", taskName, "ready")
+	cmd.Dir = root
+	out, err = cmd.CombinedOutput()
+	require.NoError(t, err, "stage ready before second merge failed: %s", out)
 
 	cmd = exec.Command(binPath, "merge", taskName, "-m", "Merge two")
 	cmd.Dir = root
