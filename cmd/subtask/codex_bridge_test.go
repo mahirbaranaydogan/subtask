@@ -283,20 +283,18 @@ func TestCodexBridgeWarpLaunchFiles_ReadPromptFromFile(t *testing.T) {
 		Binding: codexLeadBinding{Lead: "lead-a", SessionID: "session-a"},
 	}
 
-	promptPath, launchPath, err := writeCodexBridgeWarpLaunchFiles(req, "hello from bridge")
+	promptPath, scriptPath, err := writeCodexBridgeWarpLaunchFiles(req, "hello from bridge")
 	require.NoError(t, err)
 
 	prompt, err := os.ReadFile(promptPath)
 	require.NoError(t, err)
 	require.Equal(t, "hello from bridge\n", string(prompt))
 
-	launch, err := os.ReadFile(launchPath)
+	script, err := os.ReadFile(scriptPath)
 	require.NoError(t, err)
-	require.Contains(t, string(launch), "Warp Launch Configuration")
-	require.Contains(t, string(launch), "codex resume 'session-a'")
-	require.Contains(t, string(launch), "cat '"+promptPath+"'")
-	require.Contains(t, string(launch), "cwd: "+yamlString(env.RootDir))
-	require.FileExists(t, launchPath)
+	require.Contains(t, string(script), "codex resume 'session-a'")
+	require.Contains(t, string(script), "cat '"+promptPath+"'")
+	require.FileExists(t, scriptPath)
 }
 
 func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
