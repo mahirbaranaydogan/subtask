@@ -121,8 +121,8 @@ After the worker replies with the plan:
 When using Codex as the lead, bind each task or task family to the Codex session that owns it:
 
 ```bash
-subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/
-subtask codex-bridge bind --lead pos-lead --session 019d... --task-prefix apps-pos/
+subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --from-now
+subtask codex-bridge bind --lead pos-lead --session 019d... --task-prefix apps-pos/ --from-now
 subtask codex-bridge watch
 ```
 
@@ -131,6 +131,7 @@ Routing rules:
 - Longest matching prefix wins.
 - A worker reply is delivered once per run ID.
 - Multiple leads are supported, but each task should have one owner.
+- Use `--from-now` when binding an existing project so old replies do not wake the lead.
 - The bridge resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
 
 ## Notes

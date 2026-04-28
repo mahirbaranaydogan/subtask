@@ -34,6 +34,7 @@ type CodexBridgeBindCmd struct {
 	Session    string `help:"Codex session/thread id to resume" required:""`
 	Task       string `help:"Exact task name to bind"`
 	TaskPrefix string `name:"task-prefix" help:"Task name prefix to bind"`
+	FromNow    bool   `name:"from-now" help:"Do not deliver worker replies that already existed before this binding"`
 }
 
 type CodexBridgeUnbindCmd struct {
@@ -110,6 +111,11 @@ func (c *CodexBridgeBindCmd) Run() error {
 	state.upsert(binding)
 	if err := saveCodexBridgeState(state); err != nil {
 		return err
+	}
+	if c.FromNow {
+		if err := markExistingFinishedEventsDelivered(binding); err != nil {
+			return err
+		}
 	}
 	target := binding.Task
 	if target == "" {
@@ -365,6 +371,49 @@ func codexBridgeDeliverOnce(ctx context.Context, repoRoot string) (int, error) {
 		delivered++
 	}
 	return delivered, nil
+}
+
+func markExistingFinishedEventsDelivered(binding codexLeadBinding) error {
+	deliveries, err := loadCodexBridgeDeliveries()
+	if err != nil {
+		return err
+	}
+	events, err := latestFinishedEvents()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	marked := false
+	for _, ev := range events {
+		if ev.Key == "" || !binding.matchesTask(ev.Task) {
+			continue
+		}
+		id := codexDeliveryID(ev.Task, ev.Key)
+		if _, exists := deliveries.Deliveries[id]; exists {
+			continue
+		}
+		deliveries.Deliveries[id] = codexBridgeDelivery{
+			Task:      ev.Task,
+			RunID:     ev.Key,
+			Lead:      binding.Lead,
+			SessionID: binding.SessionID,
+			Outcome:   ev.Data.Outcome,
+			Delivered: now,
+		}
+		marked = true
+	}
+	if !marked {
+		return nil
+	}
+	return saveCodexBridgeDeliveries(deliveries)
+}
+
+func (b codexLeadBinding) matchesTask(taskName string) bool {
+	if strings.TrimSpace(b.Task) != "" {
+		return b.Task == taskName
+	}
+	prefix := strings.TrimSpace(b.TaskPrefix)
+	return prefix != "" && strings.HasPrefix(taskName, prefix)
 }
 
 func (s codexBridgeState) resolve(taskName string) codexBridgeMatch {

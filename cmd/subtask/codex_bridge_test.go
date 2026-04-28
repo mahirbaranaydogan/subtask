@@ -75,6 +75,35 @@ func TestCodexBridgeDeliverOnce_DeduplicatesRun(t *testing.T) {
 	require.Contains(t, deliveries.Deliveries, codexDeliveryID(taskName, "run-1"))
 }
 
+func TestCodexBridgeBindFromNow_MarksExistingRepliesDelivered(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	taskName := "feature/from-now"
+	createBridgeFinishedTask(t, env, taskName, "plan", "run-old")
+
+	require.NoError(t, (&CodexBridgeBindCmd{
+		Lead:    "lead-a",
+		Session: "session-a",
+		Task:    taskName,
+		FromNow: true,
+	}).Run())
+
+	var calls []codexBridgeResumeRequest
+	restore := stubCodexBridgeResume(t, func(_ context.Context, req codexBridgeResumeRequest) error {
+		calls = append(calls, req)
+		return nil
+	})
+	defer restore()
+
+	count, err := codexBridgeDeliverOnce(context.Background(), env.RootDir)
+	require.NoError(t, err)
+	require.Equal(t, 0, count)
+	require.Empty(t, calls)
+
+	deliveries, err := loadCodexBridgeDeliveries()
+	require.NoError(t, err)
+	require.Contains(t, deliveries.Deliveries, codexDeliveryID(taskName, "run-old"))
+}
+
 func TestCodexBridgeDeliverOnce_RoutesMultipleLeads(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	createBridgeFinishedTask(t, env, "backend/api", "plan", "run-backend")
