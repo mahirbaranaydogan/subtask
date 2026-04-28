@@ -504,6 +504,10 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 	args := []string{
 		"exec",
 		"--json",
+		"--disable", "apps",
+		"--disable", "browser_use",
+		"--disable", "computer_use",
+		"--disable", "plugins",
 		"--dangerously-bypass-approvals-and-sandbox",
 		"-C", req.RepoRoot,
 		"resume",

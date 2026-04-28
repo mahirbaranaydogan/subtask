@@ -132,7 +132,7 @@ Default delivery is `notify`. It is the safest mode for visible CLI workflows, b
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery notify --from-now
 ```
 
-Use `--delivery exec-resume` when the user explicitly wants hands-off wakeup and accepts that the resumed Codex work may run in the background rather than inside the currently visible terminal pane:
+Use `--delivery exec-resume` when the user explicitly wants hands-off wakeup and accepts that the resumed Codex work may run in the background rather than inside the currently visible terminal pane. Bridge resumes run with app/plugin MCP tools disabled so background wakeups avoid unrelated connector auth prompts and stay focused on Subtask shell review:
 
 ```bash
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery exec-resume --from-now
