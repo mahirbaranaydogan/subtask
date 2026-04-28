@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -31,6 +32,7 @@ type SendCmd struct {
 	// Reasoning is codex-only (maps to model_reasoning_effort); not persisted.
 	Reasoning string `help:"Override reasoning for this prompt (codex-only; does not persist)"`
 	Quiet     bool   `short:"q" help:"Suppress non-essential output (print reply only)"`
+	Detach    bool   `help:"Start the worker in the background and return immediately"`
 
 	// Internal: injected harness for testing
 	testHarness harness.Harness
@@ -50,6 +52,9 @@ func (c *SendCmd) Run() error {
 	}
 	if prompt == "" {
 		return fmt.Errorf("prompt is required\n\nProvide a prompt as argument or via stdin (heredoc/pipe)")
+	}
+	if c.Detach || shouldAutoDetachSend() {
+		return c.runDetached(prompt)
 	}
 
 	// Requirements: git + global config (config may be migrated on first access).
@@ -406,6 +411,77 @@ func (c *SendCmd) Run() error {
 	}
 
 	PrintWorkerResultWithStage(c.Task, reply, int(runToolCalls.Load()), changedFiles, "")
+	return nil
+}
+
+func shouldAutoDetachSend() bool {
+	return truthyEnv("SUBTASK_BRIDGE_RESUME") && !truthyEnv("SUBTASK_SEND_DETACHED_CHILD")
+}
+
+func truthyEnv(key string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(key))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+func (c *SendCmd) runDetached(prompt string) error {
+	res, err := preflightProject()
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Join(task.InternalDir(), "detached-send")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	base := safeNotificationGroup(c.Task)
+	if base == "" {
+		base = "task"
+	}
+	stamp := time.Now().UTC().Format("20060102T150405.000000000Z")
+	promptPath := filepath.Join(dir, base+"-"+stamp+".prompt")
+	logPath := filepath.Join(dir, base+"-"+stamp+".log")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0o600); err != nil {
+		return err
+	}
+	promptFile, err := os.Open(promptPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = promptFile.Close() }()
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = logFile.Close() }()
+
+	args := []string{"send", c.Task}
+	if strings.TrimSpace(c.Model) != "" {
+		args = append(args, "--model", c.Model)
+	}
+	if strings.TrimSpace(c.Reasoning) != "" {
+		args = append(args, "--reasoning", c.Reasoning)
+	}
+	if c.Quiet {
+		args = append(args, "--quiet")
+	}
+	cmd := exec.Command(exe, args...)
+	cmd.Dir = res.RepoRoot
+	cmd.Env = append(os.Environ(), "SUBTASK_SEND_DETACHED_CHILD=1")
+	cmd.Stdin = promptFile
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	fmt.Printf("Detached send started for %s (pid %d). Log: %s\n", c.Task, cmd.Process.Pid, logPath)
 	return nil
 }
 

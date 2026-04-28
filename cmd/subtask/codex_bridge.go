@@ -346,32 +346,56 @@ func (c *CodexBridgeWatchCmd) Run() error {
 }
 
 func codexBridgeDeliverOnce(ctx context.Context, repoRoot string) (int, error) {
-	var delivered int
-	err := withCodexBridgeStoreLock(func() error {
-		var err error
-		delivered, err = codexBridgeDeliverOnceLocked(ctx, repoRoot)
-		return err
-	})
-	return delivered, err
-}
-
-func codexBridgeDeliverOnceLocked(ctx context.Context, repoRoot string) (int, error) {
-	state, err := loadCodexBridgeState()
-	if err != nil {
-		return 0, err
-	}
-	if len(state.Bindings) == 0 {
-		return 0, nil
-	}
-	deliveries, err := loadCodexBridgeDeliveries()
-	if err != nil {
-		return 0, err
-	}
-	events, err := latestFinishedEvents()
+	requests, err := codexBridgePendingDeliveries(repoRoot)
 	if err != nil {
 		return 0, err
 	}
 	delivered := 0
+	for _, req := range requests {
+		ok, err := withCodexLeadLock(req.Binding.Lead, func() error {
+			return runCodexBridgeResume(ctx, req)
+		})
+		if err != nil {
+			return delivered, err
+		}
+		if !ok {
+			continue
+		}
+		if err := markCodexBridgeDelivered(req); err != nil {
+			return delivered, err
+		}
+		delivered++
+	}
+	return delivered, nil
+}
+
+func codexBridgePendingDeliveries(repoRoot string) ([]codexBridgeResumeRequest, error) {
+	var requests []codexBridgeResumeRequest
+	err := withCodexBridgeStoreLock(func() error {
+		var err error
+		requests, err = codexBridgePendingDeliveriesLocked(repoRoot)
+		return err
+	})
+	return requests, err
+}
+
+func codexBridgePendingDeliveriesLocked(repoRoot string) ([]codexBridgeResumeRequest, error) {
+	state, err := loadCodexBridgeState()
+	if err != nil {
+		return nil, err
+	}
+	if len(state.Bindings) == 0 {
+		return nil, nil
+	}
+	deliveries, err := loadCodexBridgeDeliveries()
+	if err != nil {
+		return nil, err
+	}
+	events, err := latestFinishedEvents()
+	if err != nil {
+		return nil, err
+	}
+	requests := make([]codexBridgeResumeRequest, 0)
 	for _, ev := range events {
 		if ev.Key == "" {
 			continue
@@ -386,39 +410,40 @@ func codexBridgeDeliverOnceLocked(ctx context.Context, repoRoot string) (int, er
 		}
 		tail, err := history.Tail(ev.Task)
 		if err != nil {
-			return delivered, err
+			return requests, err
 		}
-		req := codexBridgeResumeRequest{
+		requests = append(requests, codexBridgeResumeRequest{
 			RepoRoot: repoRoot,
 			Task:     ev.Task,
 			Stage:    strings.TrimSpace(tail.Stage),
 			Event:    ev,
 			Binding:  match.Binding,
-		}
-		ok, err := withCodexLeadLock(match.Binding.Lead, func() error {
-			return runCodexBridgeResume(ctx, req)
 		})
+	}
+	return requests, nil
+}
+
+func markCodexBridgeDelivered(req codexBridgeResumeRequest) error {
+	return withCodexBridgeStoreLock(func() error {
+		deliveries, err := loadCodexBridgeDeliveries()
 		if err != nil {
-			return delivered, err
+			return err
 		}
-		if !ok {
-			continue
+		deliveryID := codexDeliveryID(req.Task, req.Event.Key)
+		if _, ok := deliveries.Deliveries[deliveryID]; ok {
+			return nil
 		}
 		deliveries.Deliveries[deliveryID] = codexBridgeDelivery{
-			Task:      ev.Task,
-			RunID:     ev.Key,
-			Lead:      match.Binding.Lead,
-			SessionID: match.Binding.SessionID,
-			Outcome:   ev.Data.Outcome,
-			Mode:      match.Binding.deliveryMode(),
+			Task:      req.Task,
+			RunID:     req.Event.Key,
+			Lead:      req.Binding.Lead,
+			SessionID: req.Binding.SessionID,
+			Outcome:   req.Event.Data.Outcome,
+			Mode:      req.Binding.deliveryMode(),
 			Delivered: time.Now().UTC(),
 		}
-		if err := saveCodexBridgeDeliveries(deliveries); err != nil {
-			return delivered, err
-		}
-		delivered++
-	}
-	return delivered, nil
+		return saveCodexBridgeDeliveries(deliveries)
+	})
 }
 
 func markExistingFinishedEventsDelivered(binding codexLeadBinding) error {
@@ -501,6 +526,8 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 	}
 	sendCodexBridgeDesktopNotification(req, "Waking Codex lead")
 	prompt := buildCodexBridgePrompt(req)
+	resumeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 	args := []string{
 		"exec",
 		"--json",
@@ -515,12 +542,18 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 		req.Binding.SessionID,
 		prompt,
 	}
-	cmd := exec.CommandContext(ctx, "codex", args...)
+	cmd := exec.CommandContext(resumeCtx, "codex", args...)
 	cmd.Dir = req.RepoRoot
 	cmd.Env = append(os.Environ(), "SUBTASK_BRIDGE_RESUME=1", "SUBTASK_BRIDGE_NO_MERGE=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		if resumeCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("codex bridge resume timed out after 5m for %s", req.Task)
+		}
+		return err
+	}
+	return nil
 }
 
 func runCodexBridgeNotifyDelivery(req codexBridgeResumeRequest) error {
@@ -599,8 +632,10 @@ func buildCodexBridgePrompt(req codexBridgeResumeRequest) string {
 	fmt.Fprintf(&b, "- subtask workspace %s\n", req.Task)
 	fmt.Fprintf(&b, "\nLead instructions:\n")
 	fmt.Fprintf(&b, "- Act as the lead for this Subtask task.\n")
+	fmt.Fprintf(&b, "- This is an automatic bridge wakeup. Do one focused pass and then stop; do not poll, sleep, watch, or keep the turn open waiting for workers.\n")
 	fmt.Fprintf(&b, "- If the stage is plan, read PLAN.md, review risks/conflicts, and either request changes or move the same task to implement when the plan is acceptable.\n")
 	fmt.Fprintf(&b, "- If the stage is implement or review, inspect the diff and relevant tests before requesting changes or moving toward ready.\n")
+	fmt.Fprintf(&b, "- If you send follow-up work to the worker, use `subtask send --detach ...` so this bridge wakeup can finish immediately.\n")
 	fmt.Fprintf(&b, "- Do not merge automatically. Ask the user before running subtask merge.\n")
 	fmt.Fprintf(&b, "- Keep work scoped to this task and avoid touching unrelated leaders' tasks.\n")
 	return b.String()

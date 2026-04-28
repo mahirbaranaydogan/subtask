@@ -27,6 +27,7 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask ask "..."` | Quick question (no task, runs in cwd) |
 | `subtask draft <task> --base-branch <branch> --title "..." <<'EOF'` | Create a task |
 | `subtask send <task> <prompt>` | Prompt worker on task (blocks until reply) |
+| `subtask send --detach <task> <prompt>` | Start worker in the background and return immediately |
 | `subtask stage <task> <stage>` | Advance workflow stage |
 | `subtask list` | View all tasks |
 | `subtask show <task>` | View task details |
@@ -132,7 +133,7 @@ Default delivery is `notify`. It is the safest mode for visible CLI workflows, b
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery notify --from-now
 ```
 
-Use `--delivery exec-resume` when the user explicitly wants hands-off wakeup and accepts that the resumed Codex work may run in the background rather than inside the currently visible terminal pane. Bridge resumes run with app/plugin MCP tools disabled so background wakeups avoid unrelated connector auth prompts and stay focused on Subtask shell review:
+Use `--delivery exec-resume` when the user explicitly wants hands-off wakeup and accepts that the resumed Codex work may run in the background rather than inside the currently visible terminal pane. Bridge resumes run with app/plugin MCP tools disabled so background wakeups avoid unrelated connector auth prompts and stay focused on Subtask shell review. A bridge resume should do one focused pass and then stop; if it needs to send follow-up to a worker, use `subtask send --detach ...` so the bridge watcher does not block:
 
 ```bash
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery exec-resume --from-now
@@ -146,6 +147,7 @@ Routing rules:
 - Use `--from-now` when binding an existing project so old replies do not wake the lead.
 - `notify` delivery queues the reply for the owning lead and sends a desktop notification.
 - `exec-resume` delivery sends a desktop notification and resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
+- During a bridge resume, plain `subtask send` auto-detaches so the watcher is not stuck waiting on a worker reply.
 
 ## Notes
 

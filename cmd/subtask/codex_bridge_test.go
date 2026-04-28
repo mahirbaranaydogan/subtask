@@ -189,6 +189,8 @@ func TestCodexBridgePrompt_IncludesReviewContract(t *testing.T) {
 	require.Contains(t, prompt, "Outcome: replied")
 	require.Contains(t, prompt, "/repo/.subtask/tasks/feature--a/PLAN.md")
 	require.Contains(t, prompt, "subtask diff --stat feature/a")
+	require.Contains(t, prompt, "do not poll, sleep, watch")
+	require.Contains(t, prompt, "subtask send --detach")
 	require.Contains(t, prompt, "Do not merge automatically")
 }
 

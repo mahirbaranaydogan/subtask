@@ -165,7 +165,8 @@ Delivery modes:
   safe and visible, but it does not make Codex continue automatically.
 - `exec-resume` sends a desktop notification and runs `codex exec resume` for
   the bound session, so the lead can review the reply without the user waiting
-  at the terminal.
+  at the terminal. If the resumed lead sends follow-up worker instructions,
+  use `subtask send --detach ...` so the bridge can return immediately.
 
 Routing rules:
 
@@ -184,6 +185,9 @@ Safety rules:
 - Bridge state is written atomically under `.subtask/internal/codex-bridge/`.
 - Bridge resume disables app/plugin MCP tools to avoid unrelated connector auth
   prompts in background wakeups.
+- Bridge resume is designed for one focused pass. It should not poll, sleep, or
+  keep the turn open waiting for a worker. Plain `subtask send` auto-detaches in
+  bridge resume mode to avoid blocking future wakeups.
 - `subtask merge` is blocked inside a Codex bridge wakeup resume. The bridge can
   review, stage, or request follow-up work, but merge should happen from a
   visible lead session after human approval.
