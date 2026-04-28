@@ -36,7 +36,7 @@ type CodexBridgeBindCmd struct {
 	Session    string `help:"Codex session/thread id to resume" required:""`
 	Task       string `help:"Exact task name to bind"`
 	TaskPrefix string `name:"task-prefix" help:"Task name prefix to bind"`
-	Delivery   string `help:"Delivery mode: notify, exec-resume, terminal-inject, ghostty-launch, or warp-launch" default:"notify"`
+	Delivery   string `help:"Delivery mode: notify, exec-resume, terminal-inject, or warp-launch" default:"notify"`
 	TTY        string `name:"tty" help:"TTY path for terminal-inject delivery; auto-detects the visible codex resume session when omitted"`
 	FromNow    bool   `name:"from-now" help:"Do not deliver worker replies that already existed before this binding"`
 }
@@ -55,7 +55,7 @@ type CodexBridgePingCmd struct {
 	Lead     string `help:"Lead name to ping"`
 	Session  string `help:"Codex session/thread id to ping"`
 	TTY      string `name:"tty" help:"TTY path to inject into; auto-detects from session when omitted"`
-	Delivery string `help:"Visible ping delivery mode: terminal-inject, ghostty-launch, or warp-launch" default:"terminal-inject"`
+	Delivery string `help:"Visible ping delivery mode: terminal-inject or warp-launch" default:"terminal-inject"`
 	Message  string `help:"Message to inject" default:"Subtask bridge ping: visible Codex wakeup test. Reply briefly that the bridge ping arrived, then stop."`
 }
 
@@ -121,7 +121,6 @@ const (
 	codexBridgeDeliveryNotify         = "notify"
 	codexBridgeDeliveryExecResume     = "exec-resume"
 	codexBridgeDeliveryTerminalInject = "terminal-inject"
-	codexBridgeDeliveryGhosttyLaunch  = "ghostty-launch"
 	codexBridgeDeliveryWarpLaunch     = "warp-launch"
 )
 
@@ -183,7 +182,7 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 		return codexLeadBinding{}, fmt.Errorf("provide exactly one of --task or --task-prefix")
 	}
 	if !validCodexBridgeDelivery(delivery) {
-		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q, %q, %q, %q, or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject, codexBridgeDeliveryGhosttyLaunch, codexBridgeDeliveryWarpLaunch)
+		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q, %q, %q, or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject, codexBridgeDeliveryWarpLaunch)
 	}
 	now := time.Now().UTC()
 	return codexLeadBinding{
@@ -200,7 +199,7 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 
 func validCodexBridgeDelivery(delivery string) bool {
 	switch strings.TrimSpace(delivery) {
-	case codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject, codexBridgeDeliveryGhosttyLaunch, codexBridgeDeliveryWarpLaunch:
+	case codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject, codexBridgeDeliveryWarpLaunch:
 		return true
 	default:
 		return false
@@ -380,19 +379,17 @@ func (c *CodexBridgePingCmd) Run() error {
 		}
 		if err := injectTerminalInput(ttyPath, message+"\n"); err != nil {
 			if errors.Is(err, os.ErrPermission) {
-				fmt.Fprintf(os.Stderr, "subtask: warning: terminal inject denied by macOS, launching visible Ghostty fallback\n")
-				return runCodexBridgeGhosttyLaunchDelivery(req, message)
+				fmt.Fprintf(os.Stderr, "subtask: warning: terminal inject denied by macOS, launching visible Warp fallback\n")
+				return runCodexBridgeVisibleLaunchDelivery(req, message)
 			}
 			return err
 		}
 		fmt.Printf("Injected Codex bridge ping into %s for lead %s (%s).\n", ttyPath, binding.Lead, binding.SessionID)
 		return nil
-	case codexBridgeDeliveryGhosttyLaunch:
-		return runCodexBridgeGhosttyLaunchDelivery(req, message)
 	case codexBridgeDeliveryWarpLaunch:
 		return runCodexBridgeVisibleLaunchDelivery(req, message)
 	default:
-		return fmt.Errorf("--delivery must be %q, %q, or %q", codexBridgeDeliveryTerminalInject, codexBridgeDeliveryGhosttyLaunch, codexBridgeDeliveryWarpLaunch)
+		return fmt.Errorf("--delivery must be %q or %q", codexBridgeDeliveryTerminalInject, codexBridgeDeliveryWarpLaunch)
 	}
 }
 
@@ -417,22 +414,6 @@ func runCodexBridgeVisibleLaunchDelivery(req codexBridgeResumeRequest, prompt st
 		return err
 	}
 	fmt.Printf("Launched visible Codex wakeup for lead %s (%s) using %s, %s, and %s.\n", req.Binding.Lead, req.Binding.SessionID, scriptPath, launchPath, promptPath)
-	return nil
-}
-
-func runCodexBridgeGhosttyLaunchDelivery(req codexBridgeResumeRequest, prompt string) error {
-	prompt = strings.TrimSpace(prompt)
-	if prompt == "" {
-		prompt = buildCodexBridgeTerminalPrompt(req)
-	}
-	promptPath, err := writeCodexBridgePromptFile(req, prompt, "ghostty-launches")
-	if err != nil {
-		return err
-	}
-	if err := openGhosttyCodexWakeup(req, promptPath); err != nil {
-		return err
-	}
-	fmt.Printf("Launched visible Ghostty wakeup for lead %s (%s) using %s.\n", req.Binding.Lead, req.Binding.SessionID, promptPath)
 	return nil
 }
 
@@ -682,9 +663,6 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 		return runCodexBridgeNotifyDelivery(req)
 	case codexBridgeDeliveryTerminalInject:
 		return runCodexBridgeTerminalInjectDelivery(req)
-	case codexBridgeDeliveryGhosttyLaunch:
-		sendCodexBridgeDesktopNotification(req, "Opening Ghostty Codex lead")
-		return runCodexBridgeGhosttyLaunchDelivery(req, buildCodexBridgeTerminalPrompt(req))
 	case codexBridgeDeliveryWarpLaunch:
 		sendCodexBridgeDesktopNotification(req, "Opening visible Codex lead")
 		return runCodexBridgeVisibleLaunchDelivery(req, buildCodexBridgeTerminalPrompt(req))
@@ -735,8 +713,8 @@ func runCodexBridgeTerminalInjectDelivery(req codexBridgeResumeRequest) error {
 	prompt := buildCodexBridgeTerminalPrompt(req)
 	if err := injectTerminalInput(ttyPath, prompt+"\n"); err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			fmt.Fprintf(os.Stderr, "subtask: warning: terminal inject denied by macOS, launching visible Ghostty fallback\n")
-			return runCodexBridgeGhosttyLaunchDelivery(req, prompt)
+			fmt.Fprintf(os.Stderr, "subtask: warning: terminal inject denied by macOS, launching visible Warp fallback\n")
+			return runCodexBridgeVisibleLaunchDelivery(req, prompt)
 		}
 		return err
 	}
@@ -945,22 +923,6 @@ func normalizeTTYPath(ttyPath string) string {
 	return filepath.Join("/dev", ttyPath)
 }
 
-func writeCodexBridgePromptFile(req codexBridgeResumeRequest, prompt string, subdir string) (string, error) {
-	dir := filepath.Join(codexBridgeDir(), subdir)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	name := safeNotificationGroup(req.Binding.Lead) + "-" + safeNotificationGroup(req.Event.Key)
-	if name == "-" {
-		name = fmt.Sprintf("prompt-%d", time.Now().UnixNano())
-	}
-	promptPath := filepath.Join(dir, name+".txt")
-	if err := os.WriteFile(promptPath, []byte(prompt+"\n"), 0o600); err != nil {
-		return "", err
-	}
-	return promptPath, nil
-}
-
 func writeCodexBridgeVisibleLaunchFiles(req codexBridgeResumeRequest, prompt string) (string, string, string, error) {
 	dir := filepath.Join(codexBridgeDir(), "warp-launches")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1000,34 +962,6 @@ func writeCodexBridgeVisibleLaunchFiles(req codexBridgeResumeRequest, prompt str
 		return "", "", "", err
 	}
 	return promptPath, launchPath, scriptPath, nil
-}
-
-func openGhosttyCodexWakeup(req codexBridgeResumeRequest, promptPath string) error {
-	command := "/bin/zsh -lc " + shellSingleQuote("exec codex resume "+shellSingleQuote(req.Binding.SessionID)+" \"$(cat "+shellSingleQuote(promptPath)+")\"")
-	script := `
-on run argv
-    set projectDir to item 1 of argv
-    set commandText to item 2 of argv
-    tell application "Ghostty"
-        activate
-        set cfg to new surface configuration
-        set initial working directory of cfg to projectDir
-        set command of cfg to commandText
-        set wait after command of cfg to true
-        if (count of windows) > 0 then
-            new tab in front window with configuration cfg
-        else
-            new window with configuration cfg
-        end if
-    end tell
-end run
-`
-	cmd := exec.Command("osascript", "-", req.RepoRoot, command)
-	cmd.Stdin = strings.NewReader(script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("open Ghostty Codex wakeup failed: %v %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 func openVisibleLaunchScript(scriptPath string) error {

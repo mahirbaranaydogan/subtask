@@ -168,12 +168,7 @@ Delivery modes:
   want the same leader pane you are watching to wake up, rather than a hidden
   background Codex run. If auto-detection cannot find the pane, bind with
   `--tty /dev/ttysXXX`. On macOS builds that block terminal input injection,
-  Subtask falls back to opening a visible Ghostty wakeup tab.
-- `ghostty-launch` opens a new visible Ghostty tab when Ghostty is already
-  running, or a Ghostty window when it is not. It runs
-  `codex resume <session>` with the Subtask review prompt through Ghostty's
-  macOS AppleScript API. This avoids hidden background work and avoids the
-  Terminal.app fallback.
+  Subtask falls back to opening a visible Terminal.app wakeup window.
 - `warp-launch` writes a Warp Launch Configuration for reference and opens a
   visible Terminal.app window that runs `codex resume <session>` with the
   Subtask review prompt. This avoids hidden background work and does not
@@ -209,10 +204,7 @@ Safety rules:
 - Bridge state is written atomically under `.subtask/internal/codex-bridge/`.
 - Terminal-inject delivery never runs hidden Codex work; it only submits a
   prompt to a visible Codex CLI for the bound session. If macOS denies direct
-  injection, the visible Ghostty fallback is used.
-- Ghostty-launch delivery uses Ghostty's official AppleScript support. macOS
-  may ask once for Automation permission the first time Subtask controls
-  Ghostty.
+  injection, the visible Terminal.app fallback is used.
 - Bridge resume disables app/plugin MCP tools to avoid unrelated connector auth
   prompts in background wakeups.
 - Bridge resume is designed for one focused pass. It should not poll, sleep, or
