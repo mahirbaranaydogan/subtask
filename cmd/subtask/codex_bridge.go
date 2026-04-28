@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -35,7 +36,7 @@ type CodexBridgeBindCmd struct {
 	Session    string `help:"Codex session/thread id to resume" required:""`
 	Task       string `help:"Exact task name to bind"`
 	TaskPrefix string `name:"task-prefix" help:"Task name prefix to bind"`
-	Delivery   string `help:"Delivery mode: notify, exec-resume, or terminal-inject" default:"notify"`
+	Delivery   string `help:"Delivery mode: notify, exec-resume, terminal-inject, or warp-launch" default:"notify"`
 	TTY        string `name:"tty" help:"TTY path for terminal-inject delivery; auto-detects the visible codex resume session when omitted"`
 	FromNow    bool   `name:"from-now" help:"Do not deliver worker replies that already existed before this binding"`
 }
@@ -51,10 +52,11 @@ type CodexBridgeListCmd struct{}
 type CodexBridgeStatusCmd struct{}
 
 type CodexBridgePingCmd struct {
-	Lead    string `help:"Lead name to ping"`
-	Session string `help:"Codex session/thread id to ping"`
-	TTY     string `name:"tty" help:"TTY path to inject into; auto-detects from session when omitted"`
-	Message string `help:"Message to inject" default:"Subtask bridge ping: visible Codex wakeup test. Reply briefly that the bridge ping arrived, then stop."`
+	Lead     string `help:"Lead name to ping"`
+	Session  string `help:"Codex session/thread id to ping"`
+	TTY      string `name:"tty" help:"TTY path to inject into; auto-detects from session when omitted"`
+	Delivery string `help:"Visible ping delivery mode: terminal-inject or warp-launch" default:"terminal-inject"`
+	Message  string `help:"Message to inject" default:"Subtask bridge ping: visible Codex wakeup test. Reply briefly that the bridge ping arrived, then stop."`
 }
 
 type CodexBridgeWatchCmd struct {
@@ -119,6 +121,7 @@ const (
 	codexBridgeDeliveryNotify         = "notify"
 	codexBridgeDeliveryExecResume     = "exec-resume"
 	codexBridgeDeliveryTerminalInject = "terminal-inject"
+	codexBridgeDeliveryWarpLaunch     = "warp-launch"
 )
 
 func (c *CodexBridgeBindCmd) Run() error {
@@ -179,7 +182,7 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 		return codexLeadBinding{}, fmt.Errorf("provide exactly one of --task or --task-prefix")
 	}
 	if !validCodexBridgeDelivery(delivery) {
-		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q, %q, or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject)
+		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q, %q, %q, or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject, codexBridgeDeliveryWarpLaunch)
 	}
 	now := time.Now().UTC()
 	return codexLeadBinding{
@@ -196,7 +199,7 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 
 func validCodexBridgeDelivery(delivery string) bool {
 	switch strings.TrimSpace(delivery) {
-	case codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject:
+	case codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject, codexBridgeDeliveryWarpLaunch:
 		return true
 	default:
 		return false
@@ -349,18 +352,68 @@ func (c *CodexBridgePingCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	ttyPath, err := resolveCodexLeadTTY(binding)
-	if err != nil {
-		return err
-	}
 	message := strings.TrimSpace(c.Message)
 	if message == "" {
 		return fmt.Errorf("--message cannot be empty")
 	}
-	if err := injectTerminalInput(ttyPath, message+"\n"); err != nil {
+	delivery := strings.TrimSpace(c.Delivery)
+	if delivery == "" {
+		delivery = codexBridgeDeliveryTerminalInject
+	}
+	req := codexBridgeResumeRequest{
+		RepoRoot: mustProjectRootForPing(),
+		Task:     "codex-bridge/ping",
+		Stage:    "diagnostic",
+		Event: finishedEvent{
+			Task: "codex-bridge/ping",
+			Key:  fmt.Sprintf("ping-%d", time.Now().UnixNano()),
+			Data: workerFinishedData{Outcome: "replied"},
+		},
+		Binding: binding,
+	}
+	switch delivery {
+	case codexBridgeDeliveryTerminalInject:
+		ttyPath, err := resolveCodexLeadTTY(binding)
+		if err != nil {
+			return err
+		}
+		if err := injectTerminalInput(ttyPath, message+"\n"); err != nil {
+			if errors.Is(err, os.ErrPermission) {
+				fmt.Fprintf(os.Stderr, "subtask: warning: terminal inject denied by macOS, launching visible Warp fallback\n")
+				return runCodexBridgeVisibleLaunchDelivery(req, message)
+			}
+			return err
+		}
+		fmt.Printf("Injected Codex bridge ping into %s for lead %s (%s).\n", ttyPath, binding.Lead, binding.SessionID)
+		return nil
+	case codexBridgeDeliveryWarpLaunch:
+		return runCodexBridgeVisibleLaunchDelivery(req, message)
+	default:
+		return fmt.Errorf("--delivery must be %q or %q", codexBridgeDeliveryTerminalInject, codexBridgeDeliveryWarpLaunch)
+	}
+}
+
+func mustProjectRootForPing() string {
+	res, err := preflightProject()
+	if err != nil {
+		return "."
+	}
+	return res.RepoRoot
+}
+
+func runCodexBridgeVisibleLaunchDelivery(req codexBridgeResumeRequest, prompt string) error {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		prompt = buildCodexBridgeTerminalPrompt(req)
+	}
+	promptPath, scriptPath, err := writeCodexBridgeWarpLaunchFiles(req, prompt)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("Injected Codex bridge ping into %s for lead %s (%s).\n", ttyPath, binding.Lead, binding.SessionID)
+	if err := openWarpLaunchScript(scriptPath); err != nil {
+		return err
+	}
+	fmt.Printf("Launched visible Warp wakeup for lead %s (%s) using %s and %s.\n", req.Binding.Lead, req.Binding.SessionID, scriptPath, promptPath)
 	return nil
 }
 
@@ -610,6 +663,9 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 		return runCodexBridgeNotifyDelivery(req)
 	case codexBridgeDeliveryTerminalInject:
 		return runCodexBridgeTerminalInjectDelivery(req)
+	case codexBridgeDeliveryWarpLaunch:
+		sendCodexBridgeDesktopNotification(req, "Opening visible Codex lead")
+		return runCodexBridgeVisibleLaunchDelivery(req, buildCodexBridgeTerminalPrompt(req))
 	}
 	cleanupActive, err := markCodexBridgeActiveResume(req, 10*time.Minute)
 	if err != nil {
@@ -656,6 +712,10 @@ func runCodexBridgeTerminalInjectDelivery(req codexBridgeResumeRequest) error {
 	sendCodexBridgeDesktopNotification(req, "Waking visible Codex lead")
 	prompt := buildCodexBridgeTerminalPrompt(req)
 	if err := injectTerminalInput(ttyPath, prompt+"\n"); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			fmt.Fprintf(os.Stderr, "subtask: warning: terminal inject denied by macOS, launching visible Warp fallback\n")
+			return runCodexBridgeVisibleLaunchDelivery(req, prompt)
+		}
 		return err
 	}
 	fmt.Printf("Injected Subtask reply into %s for lead %s: %s.\n", ttyPath, req.Binding.Lead, req.Task)
@@ -861,6 +921,55 @@ func normalizeTTYPath(ttyPath string) string {
 		return ttyPath
 	}
 	return filepath.Join("/dev", ttyPath)
+}
+
+func writeCodexBridgeWarpLaunchFiles(req codexBridgeResumeRequest, prompt string) (string, string, error) {
+	dir := filepath.Join(codexBridgeDir(), "warp-launches")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", err
+	}
+	name := safeNotificationGroup(req.Binding.Lead) + "-" + safeNotificationGroup(req.Event.Key)
+	if name == "-" {
+		name = fmt.Sprintf("launch-%d", time.Now().UnixNano())
+	}
+	promptPath := filepath.Join(dir, name+".txt")
+	scriptPath := filepath.Join(dir, name+".command")
+	if err := os.WriteFile(promptPath, []byte(prompt+"\n"), 0o600); err != nil {
+		return "", "", err
+	}
+	script := strings.Join([]string{
+		"#!/bin/zsh",
+		"set -e",
+		"cd " + shellSingleQuote(req.RepoRoot),
+		"exec codex resume " + shellSingleQuote(req.Binding.SessionID) + " \"$(cat " + shellSingleQuote(promptPath) + ")\"",
+		"",
+	}, "\n")
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		return "", "", err
+	}
+	return promptPath, scriptPath, nil
+}
+
+func openWarpLaunchScript(scriptPath string) error {
+	commands := [][]string{
+		{"open", "-b", "dev.warp.Warp-Stable", scriptPath},
+		{"open", "-a", "Warp", scriptPath},
+		{"open", scriptPath},
+	}
+	var errs []string
+	for _, args := range commands {
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v %s", strings.Join(args, " "), err, strings.TrimSpace(string(out))))
+			continue
+		}
+		return nil
+	}
+	return fmt.Errorf("open visible Warp wakeup failed: %s", strings.Join(errs, "; "))
+}
+
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func codexBridgeDir() string {

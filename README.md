@@ -167,7 +167,11 @@ Delivery modes:
   injects a short Subtask review prompt into that live CLI. Use this when you
   want the same leader pane you are watching to wake up, rather than a hidden
   background Codex run. If auto-detection cannot find the pane, bind with
-  `--tty /dev/ttysXXX`.
+  `--tty /dev/ttysXXX`. On macOS builds that block terminal input injection,
+  Subtask falls back to opening a visible Warp wakeup tab.
+- `warp-launch` opens a new visible Warp tab and runs `codex resume <session>`
+  with the Subtask review prompt. This avoids hidden background work and does
+  not require macOS Accessibility permissions, but each wakeup is a new tab.
 - `exec-resume` sends a desktop notification and runs `codex exec resume` for
   the bound session, so the lead can review the reply without the user waiting
   at the terminal. This runs in the background and may not update the currently
@@ -197,7 +201,8 @@ Safety rules:
   at the same time.
 - Bridge state is written atomically under `.subtask/internal/codex-bridge/`.
 - Terminal-inject delivery never runs hidden Codex work; it only submits a
-  prompt to the visible Codex CLI for the bound session.
+  prompt to a visible Codex CLI for the bound session. If macOS denies direct
+  injection, the visible Warp fallback is used.
 - Bridge resume disables app/plugin MCP tools to avoid unrelated connector auth
   prompts in background wakeups.
 - Bridge resume is designed for one focused pass. It should not poll, sleep, or

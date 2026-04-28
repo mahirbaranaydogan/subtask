@@ -70,7 +70,7 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
 
-**Critical for Codex:** Desktop notifications do not wake a visible Codex CLI thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead owner first, then keep `subtask codex-bridge watch` running. The bridge defaults to safe `notify` delivery: it records the reply and sends a desktop notification without running hidden Codex work. Use `--delivery terminal-inject` when the visible CLI pane itself should wake up; it injects a short review prompt into the matching `codex resume <session>` terminal. Use `--delivery exec-resume` only when background Codex work is acceptable. The bridge never merges automatically.
+**Critical for Codex:** Desktop notifications do not wake a visible Codex CLI thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead owner first, then keep `subtask codex-bridge watch` running. The bridge defaults to safe `notify` delivery: it records the reply and sends a desktop notification without running hidden Codex work. Use `--delivery terminal-inject` when the visible CLI pane itself should wake up; it injects a short review prompt into the matching `codex resume <session>` terminal and falls back to a visible Warp tab if macOS blocks direct input. Use `--delivery warp-launch` when you always want a new visible Warp tab. Use `--delivery exec-resume` only when background Codex work is acceptable. The bridge never merges automatically.
 
 ## Merging
 
@@ -139,7 +139,13 @@ Use `--delivery terminal-inject` when the visible CLI pane should receive the wo
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery terminal-inject --from-now
 ```
 
-If auto-detection cannot find the visible terminal, bind explicitly with `--tty /dev/ttysXXX`. To test routing without waiting for a worker, run `subtask codex-bridge ping --lead backend-lead`.
+If auto-detection cannot find the visible terminal, bind explicitly with `--tty /dev/ttysXXX`. To test routing without waiting for a worker, run `subtask codex-bridge ping --lead backend-lead`. If direct injection is blocked, the ping opens a visible Warp fallback tab.
+
+Use `--delivery warp-launch` when new visible Warp tabs are preferred over direct terminal input:
+
+```bash
+subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery warp-launch --from-now
+```
 
 Use `--delivery exec-resume` when the user explicitly wants hands-off wakeup and accepts that the resumed Codex work may run in the background rather than inside the currently visible terminal pane. Bridge resumes run with app/plugin MCP tools disabled so background wakeups avoid unrelated connector auth prompts and stay focused on Subtask shell review. A bridge resume should do one focused pass and then stop; if it needs to send follow-up to a worker, use `subtask send --detach ...` so the bridge watcher does not block:
 
@@ -154,7 +160,8 @@ Routing rules:
 - Multiple leads are supported, but each task should have one owner.
 - Use `--from-now` when binding an existing project so old replies do not wake the lead.
 - `notify` delivery queues the reply for the owning lead and sends a desktop notification.
-- `terminal-inject` delivery injects the wakeup prompt into the visible `codex resume <session>` terminal for that lead.
+- `terminal-inject` delivery injects the wakeup prompt into the visible `codex resume <session>` terminal for that lead; when macOS denies this, it opens a visible Warp tab.
+- `warp-launch` delivery opens a new visible Warp tab and runs `codex resume <session>` with the wakeup prompt.
 - `exec-resume` delivery sends a desktop notification and resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
 - During a bridge resume, plain `subtask send` auto-detaches so the watcher is not stuck waiting on a worker reply.
 
