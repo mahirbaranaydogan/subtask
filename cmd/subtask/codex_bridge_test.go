@@ -109,20 +109,6 @@ func TestCodexBridgeBind_AcceptsTerminalInjectDelivery(t *testing.T) {
 	require.Equal(t, "/dev/ttys004", binding.TTY)
 }
 
-func TestCodexBridgeBind_AcceptsWarpLaunchDelivery(t *testing.T) {
-	_ = testutil.NewTestEnv(t, 0)
-
-	cmd := CodexBridgeBindCmd{
-		Lead:     "lead-a",
-		Session:  "session-a",
-		Task:     "feature/visible",
-		Delivery: codexBridgeDeliveryWarpLaunch,
-	}
-	binding, err := cmd.binding()
-	require.NoError(t, err)
-	require.Equal(t, codexBridgeDeliveryWarpLaunch, binding.deliveryMode())
-}
-
 func TestCodexBridgeBindFromNow_MarksExistingRepliesDelivered(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	taskName := "feature/from-now"
@@ -268,33 +254,6 @@ func TestParseCodexResumeTTY_ReturnsFalseWithoutVisibleSession(t *testing.T) {
 	_, ok, err := parseCodexResumeTTY(psOutput, "session-a")
 	require.NoError(t, err)
 	require.False(t, ok)
-}
-
-func TestCodexBridgeWarpLaunchFiles_ReadPromptFromFile(t *testing.T) {
-	env := testutil.NewTestEnv(t, 0)
-	req := codexBridgeResumeRequest{
-		RepoRoot: env.RootDir,
-		Task:     "feature/a",
-		Event: finishedEvent{
-			Task: "feature/a",
-			Key:  "run-1",
-			Data: workerFinishedData{Outcome: "replied"},
-		},
-		Binding: codexLeadBinding{Lead: "lead-a", SessionID: "session-a"},
-	}
-
-	promptPath, scriptPath, err := writeCodexBridgeWarpLaunchFiles(req, "hello from bridge")
-	require.NoError(t, err)
-
-	prompt, err := os.ReadFile(promptPath)
-	require.NoError(t, err)
-	require.Equal(t, "hello from bridge\n", string(prompt))
-
-	script, err := os.ReadFile(scriptPath)
-	require.NoError(t, err)
-	require.Contains(t, string(script), "codex resume 'session-a'")
-	require.Contains(t, string(script), "cat '"+promptPath+"'")
-	require.FileExists(t, scriptPath)
 }
 
 func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
