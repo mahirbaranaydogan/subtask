@@ -508,6 +508,7 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 		"--disable", "browser_use",
 		"--disable", "computer_use",
 		"--disable", "plugins",
+		"-c", "shell_environment_policy.inherit=all",
 		"--dangerously-bypass-approvals-and-sandbox",
 		"-C", req.RepoRoot,
 		"resume",
@@ -516,6 +517,7 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 	}
 	cmd := exec.CommandContext(ctx, "codex", args...)
 	cmd.Dir = req.RepoRoot
+	cmd.Env = append(os.Environ(), "SUBTASK_BRIDGE_RESUME=1", "SUBTASK_BRIDGE_NO_MERGE=1")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

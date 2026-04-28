@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/zippoxer/subtask/pkg/task"
@@ -22,6 +23,9 @@ func (c *MergeCmd) Run() error {
 	if _, err := preflightProject(); err != nil {
 		return err
 	}
+	if bridgeNoMergeEnabled() {
+		return fmt.Errorf("subtask merge is disabled inside a Codex bridge wakeup resume; review the task and ask the user to merge from a visible lead session")
+	}
 	if !c.Force {
 		if err := requireReadyToMerge(c.Task); err != nil {
 			return err
@@ -40,6 +44,11 @@ func (c *MergeCmd) Run() error {
 		}
 	}
 	return nil
+}
+
+func bridgeNoMergeEnabled() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("SUBTASK_BRIDGE_NO_MERGE")))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
 }
 
 func requireReadyToMerge(taskName string) error {

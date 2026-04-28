@@ -213,6 +213,8 @@ func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
 	require.NoError(t, err)
 	log := string(data)
 	require.Contains(t, log, "exec")
+	require.Contains(t, log, "--disable apps")
+	require.Contains(t, log, "shell_environment_policy.inherit=all")
 	require.Contains(t, log, "-C")
 	require.Contains(t, log, env.RootDir)
 	require.Contains(t, log, "resume")

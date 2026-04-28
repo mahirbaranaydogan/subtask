@@ -129,6 +129,18 @@ func TestMergeCommand_NoOriginRemote(t *testing.T) {
 	assert.Equal(t, "line 1\nline 2\n", normalized)
 }
 
+func TestMergeCommand_BlockedDuringCodexBridgeResume(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	subtaskBin := buildSubtask(t)
+
+	cmd := exec.Command(subtaskBin, "merge", "test/bridge-blocked", "-m", "Should not merge")
+	cmd.Dir = env.RootDir
+	cmd.Env = append(os.Environ(), "SUBTASK_BRIDGE_NO_MERGE=1")
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err)
+	assert.Contains(t, string(out), "disabled inside a Codex bridge wakeup resume")
+}
+
 // TestMergeCommand_NoOpAlreadyInBase verifies that when a task's content is already in the base branch
 // (e.g. via squash merge / cherry-pick), `subtask merge` finalizes the task without creating a new commit,
 // and `subtask diff` still shows the task's original contribution rather than an arbitrary base tip commit.
