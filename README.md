@@ -7,6 +7,7 @@ Subtask gives Claude Code a Skill and CLI to create tasks, spawn subagents, trac
 * TUI shows progress, diffs & conversations
 * Tasks are persisted in folders
 * Codex subagents supported
+* Codex lead wakeups supported through `codex-bridge`
 * Ralph not needed
 
 ### Spawning Tasks
@@ -130,6 +131,62 @@ What happens next:
 1. Claude Code creates tasks and runs subagents to do them simultaneously.<br/>
 2. Claude gets notified when they're done, and reviews the code.<br/>
 3. Claude asks if you want to merge, or ask for changes.
+
+## Codex Lead Bridge
+
+Subtask can also be led from Codex. Desktop notifications are useful, but they
+do not continue a Codex CLI session by themselves. The Codex bridge records
+which Codex lead owns each task or task prefix, watches worker replies, and can
+resume the correct Codex session when a worker finishes.
+
+Bind a Codex lead session to a task family:
+
+```bash
+subtask codex-bridge bind \
+  --lead growth-lead \
+  --session 019d... \
+  --task-prefix growth-os/ \
+  --delivery exec-resume \
+  --from-now
+```
+
+Run the watcher:
+
+```bash
+subtask codex-bridge watch --poll 2s
+```
+
+For a persistent macOS setup, run the watcher from a LaunchAgent with the
+project repository as its working directory.
+
+Delivery modes:
+
+- `notify` records the worker reply and sends a desktop notification. This is
+  safe and visible, but it does not make Codex continue automatically.
+- `exec-resume` sends a desktop notification and runs `codex exec resume` for
+  the bound session, so the lead can review the reply without the user waiting
+  at the terminal.
+
+Routing rules:
+
+- Exact task bindings beat prefix bindings.
+- Longest matching prefix wins.
+- Use `--from-now` when binding an existing project so old replies do not
+  replay.
+- Multiple Codex leads are supported by assigning different task prefixes to
+  different session IDs.
+
+Safety rules:
+
+- Worker replies are delivered once per run ID.
+- Per-lead locking prevents two bridge resumes from running for the same lead
+  at the same time.
+- Bridge state is written atomically under `.subtask/internal/codex-bridge/`.
+- Bridge resume disables app/plugin MCP tools to avoid unrelated connector auth
+  prompts in background wakeups.
+- `subtask merge` is blocked inside a Codex bridge wakeup resume. The bridge can
+  review, stage, or request follow-up work, but merge should happen from a
+  visible lead session after human approval.
 
 ## Updating
 ```bash
