@@ -270,7 +270,7 @@ func TestParseCodexResumeTTY_ReturnsFalseWithoutVisibleSession(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestCodexBridgeVisibleLaunchFiles_ReadPromptFromFile(t *testing.T) {
+func TestCodexBridgeWarpLaunchFiles_ReadPromptFromFile(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	req := codexBridgeResumeRequest{
 		RepoRoot: env.RootDir,
@@ -283,7 +283,7 @@ func TestCodexBridgeVisibleLaunchFiles_ReadPromptFromFile(t *testing.T) {
 		Binding: codexLeadBinding{Lead: "lead-a", SessionID: "session-a"},
 	}
 
-	promptPath, launchPath, scriptPath, err := writeCodexBridgeVisibleLaunchFiles(req, "hello from bridge")
+	promptPath, launchPath, err := writeCodexBridgeWarpLaunchFiles(req, "hello from bridge")
 	require.NoError(t, err)
 
 	prompt, err := os.ReadFile(promptPath)
@@ -297,14 +297,6 @@ func TestCodexBridgeVisibleLaunchFiles_ReadPromptFromFile(t *testing.T) {
 	require.Contains(t, string(launch), "cat '"+promptPath+"'")
 	require.Contains(t, string(launch), "cwd: "+yamlString(env.RootDir))
 	require.FileExists(t, launchPath)
-
-	script, err := os.ReadFile(scriptPath)
-	require.NoError(t, err)
-	require.Contains(t, string(script), "#!/bin/zsh")
-	require.Contains(t, string(script), "cd '"+env.RootDir+"'")
-	require.Contains(t, string(script), "codex resume 'session-a'")
-	require.Contains(t, string(script), "cat '"+promptPath+"'")
-	require.FileExists(t, scriptPath)
 }
 
 func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
