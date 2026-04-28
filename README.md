@@ -146,7 +146,7 @@ subtask codex-bridge bind \
   --lead growth-lead \
   --session 019d... \
   --task-prefix growth-os/ \
-  --delivery exec-resume \
+  --delivery terminal-inject \
   --from-now
 ```
 
@@ -163,10 +163,23 @@ Delivery modes:
 
 - `notify` records the worker reply and sends a desktop notification. This is
   safe and visible, but it does not make Codex continue automatically.
+- `terminal-inject` finds the visible `codex resume <session>` terminal and
+  injects a short Subtask review prompt into that live CLI. Use this when you
+  want the same leader pane you are watching to wake up, rather than a hidden
+  background Codex run. If auto-detection cannot find the pane, bind with
+  `--tty /dev/ttysXXX`.
 - `exec-resume` sends a desktop notification and runs `codex exec resume` for
   the bound session, so the lead can review the reply without the user waiting
-  at the terminal. If the resumed lead sends follow-up worker instructions,
-  use `subtask send --detach ...` so the bridge can return immediately.
+  at the terminal. This runs in the background and may not update the currently
+  visible terminal pane. If the resumed lead sends follow-up worker
+  instructions, use `subtask send --detach ...` so the bridge can return
+  immediately.
+
+To test visible wakeup routing without waiting for a worker:
+
+```bash
+subtask codex-bridge ping --lead growth-lead
+```
 
 Routing rules:
 
@@ -183,6 +196,8 @@ Safety rules:
 - Per-lead locking prevents two bridge resumes from running for the same lead
   at the same time.
 - Bridge state is written atomically under `.subtask/internal/codex-bridge/`.
+- Terminal-inject delivery never runs hidden Codex work; it only submits a
+  prompt to the visible Codex CLI for the bound session.
 - Bridge resume disables app/plugin MCP tools to avoid unrelated connector auth
   prompts in background wakeups.
 - Bridge resume is designed for one focused pass. It should not poll, sleep, or

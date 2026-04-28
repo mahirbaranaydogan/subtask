@@ -93,6 +93,22 @@ func TestCodexBridgeBind_RejectsUnknownDelivery(t *testing.T) {
 	require.Contains(t, err.Error(), "--delivery")
 }
 
+func TestCodexBridgeBind_AcceptsTerminalInjectDelivery(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	cmd := CodexBridgeBindCmd{
+		Lead:     "lead-a",
+		Session:  "session-a",
+		Task:     "feature/visible",
+		Delivery: codexBridgeDeliveryTerminalInject,
+		TTY:      "ttys004",
+	}
+	binding, err := cmd.binding()
+	require.NoError(t, err)
+	require.Equal(t, codexBridgeDeliveryTerminalInject, binding.deliveryMode())
+	require.Equal(t, "/dev/ttys004", binding.TTY)
+}
+
 func TestCodexBridgeBindFromNow_MarksExistingRepliesDelivered(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	taskName := "feature/from-now"
@@ -192,6 +208,52 @@ func TestCodexBridgePrompt_IncludesReviewContract(t *testing.T) {
 	require.Contains(t, prompt, "do not poll, sleep, watch")
 	require.Contains(t, prompt, "subtask send --detach")
 	require.Contains(t, prompt, "Do not merge automatically")
+}
+
+func TestCodexBridgeTerminalPrompt_IsShortVisibleLeadInstruction(t *testing.T) {
+	req := codexBridgeResumeRequest{
+		RepoRoot: "/repo",
+		Task:     "feature/a",
+		Stage:    "implement",
+		Event: finishedEvent{
+			Task: "feature/a",
+			Key:  "run-1",
+			Data: workerFinishedData{Outcome: "replied", ToolCalls: 7, DurationMS: 1200},
+		},
+		Binding: codexLeadBinding{Lead: "lead-a", SessionID: "session-a"},
+	}
+
+	prompt := buildCodexBridgeTerminalPrompt(req)
+	require.Contains(t, prompt, "Subtask worker replied: feature/a")
+	require.Contains(t, prompt, "subtask show feature/a")
+	require.Contains(t, prompt, "subtask log feature/a")
+	require.Contains(t, prompt, "subtask diff --stat feature/a")
+	require.Contains(t, prompt, "Do not merge automatically")
+	require.NotContains(t, prompt, "codex exec")
+}
+
+func TestParseCodexResumeTTY_FindsVisibleResumeAndSkipsExecResume(t *testing.T) {
+	psOutput := `
+  111 ??       /opt/homebrew/bin/codex exec resume session-a prompt
+  222 ttys004  node /opt/homebrew/bin/codex resume session-a
+  333 ttys005  /opt/homebrew/bin/codex resume session-b
+`
+
+	ttyPath, ok, err := parseCodexResumeTTY(psOutput, "session-a")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "/dev/ttys004", ttyPath)
+}
+
+func TestParseCodexResumeTTY_ReturnsFalseWithoutVisibleSession(t *testing.T) {
+	psOutput := `
+  111 ??       /opt/homebrew/bin/codex exec resume session-a prompt
+  222 ttys005  /opt/homebrew/bin/codex resume session-b
+`
+
+	_, ok, err := parseCodexResumeTTY(psOutput, "session-a")
+	require.NoError(t, err)
+	require.False(t, ok)
 }
 
 func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
