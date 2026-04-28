@@ -69,7 +69,7 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
 
-**Critical for Codex:** Desktop notifications do not wake a visible Codex CLI thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead owner first, then keep `subtask codex-bridge watch` running. The bridge defaults to safe `notify` delivery: it records the reply and sends a desktop notification without running hidden Codex work. `exec-resume` delivery is available only when explicitly selected and may run Codex in the background rather than the visible terminal. The bridge never merges automatically.
+**Critical for Codex:** Desktop notifications do not wake a visible Codex CLI thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead owner first, then keep `subtask codex-bridge watch` running. The bridge defaults to safe `notify` delivery: it records the reply and sends a desktop notification without running hidden Codex work. For hands-off work where the lead must continue without the user sitting at the terminal, bind with `--delivery exec-resume`; this uses `codex exec resume <session>` to wake the bound Codex session in the background. The bridge never merges automatically.
 
 ## Merging
 
@@ -126,13 +126,13 @@ subtask codex-bridge bind --lead pos-lead --session 019d... --task-prefix apps-p
 subtask codex-bridge watch
 ```
 
-Default delivery is `notify`. It is the safest mode for visible CLI workflows:
+Default delivery is `notify`. It is the safest mode for visible CLI workflows, but it does not continue the lead automatically:
 
 ```bash
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery notify --from-now
 ```
 
-Use `--delivery exec-resume` only when you intentionally want the bridge to run `codex exec ... resume` in the background:
+Use `--delivery exec-resume` when the user explicitly wants hands-off wakeup and accepts that the resumed Codex work may run in the background rather than inside the currently visible terminal pane:
 
 ```bash
 subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery exec-resume --from-now
@@ -145,7 +145,7 @@ Routing rules:
 - Multiple leads are supported, but each task should have one owner.
 - Use `--from-now` when binding an existing project so old replies do not wake the lead.
 - `notify` delivery queues the reply for the owning lead and sends a desktop notification.
-- `exec-resume` delivery resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
+- `exec-resume` delivery sends a desktop notification and resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
 
 ## Notes
 

@@ -109,22 +109,29 @@ func (c *CodexBridgeBindCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	state, err := loadCodexBridgeState()
-	if err != nil {
-		return err
-	}
-	if conflict := state.conflict(binding); conflict != nil {
-		return conflict
-	}
-	state.upsert(binding)
-	if err := saveCodexBridgeState(state); err != nil {
-		return err
-	}
-	if c.FromNow {
-		if err := markExistingFinishedEventsDelivered(binding); err != nil {
+
+	if err := withCodexBridgeStoreLock(func() error {
+		state, err := loadCodexBridgeState()
+		if err != nil {
 			return err
 		}
+		if conflict := state.conflict(binding); conflict != nil {
+			return conflict
+		}
+		state.upsert(binding)
+		if err := saveCodexBridgeState(state); err != nil {
+			return err
+		}
+		if c.FromNow {
+			if err := markExistingFinishedEventsDeliveredLocked(binding); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
+
 	target := binding.Task
 	if target == "" {
 		target = binding.TaskPrefix + "*"
@@ -221,21 +228,23 @@ func (c *CodexBridgeUnbindCmd) Run() error {
 	if strings.TrimSpace(c.Lead) == "" && strings.TrimSpace(c.Task) == "" && strings.TrimSpace(c.TaskPrefix) == "" {
 		return fmt.Errorf("provide --lead, --task, or --task-prefix")
 	}
-	state, err := loadCodexBridgeState()
-	if err != nil {
-		return err
-	}
-	kept := state.Bindings[:0]
 	removed := 0
-	for _, b := range state.Bindings {
-		if c.matches(b) {
-			removed++
-			continue
+	if err := withCodexBridgeStoreLock(func() error {
+		state, err := loadCodexBridgeState()
+		if err != nil {
+			return err
 		}
-		kept = append(kept, b)
-	}
-	state.Bindings = kept
-	if err := saveCodexBridgeState(state); err != nil {
+		kept := state.Bindings[:0]
+		for _, b := range state.Bindings {
+			if c.matches(b) {
+				removed++
+				continue
+			}
+			kept = append(kept, b)
+		}
+		state.Bindings = kept
+		return saveCodexBridgeState(state)
+	}); err != nil {
 		return err
 	}
 	fmt.Printf("Removed %d binding(s).\n", removed)
@@ -337,6 +346,16 @@ func (c *CodexBridgeWatchCmd) Run() error {
 }
 
 func codexBridgeDeliverOnce(ctx context.Context, repoRoot string) (int, error) {
+	var delivered int
+	err := withCodexBridgeStoreLock(func() error {
+		var err error
+		delivered, err = codexBridgeDeliverOnceLocked(ctx, repoRoot)
+		return err
+	})
+	return delivered, err
+}
+
+func codexBridgeDeliverOnceLocked(ctx context.Context, repoRoot string) (int, error) {
 	state, err := loadCodexBridgeState()
 	if err != nil {
 		return 0, err
@@ -403,6 +422,12 @@ func codexBridgeDeliverOnce(ctx context.Context, repoRoot string) (int, error) {
 }
 
 func markExistingFinishedEventsDelivered(binding codexLeadBinding) error {
+	return withCodexBridgeStoreLock(func() error {
+		return markExistingFinishedEventsDeliveredLocked(binding)
+	})
+}
+
+func markExistingFinishedEventsDeliveredLocked(binding codexLeadBinding) error {
 	deliveries, err := loadCodexBridgeDeliveries()
 	if err != nil {
 		return err
@@ -474,6 +499,7 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 	if req.Binding.deliveryMode() == codexBridgeDeliveryNotify {
 		return runCodexBridgeNotifyDelivery(req)
 	}
+	sendCodexBridgeDesktopNotification(req, "Waking Codex lead")
 	prompt := buildCodexBridgePrompt(req)
 	args := []string{
 		"exec",
@@ -492,25 +518,46 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 }
 
 func runCodexBridgeNotifyDelivery(req codexBridgeResumeRequest) error {
+	sendCodexBridgeDesktopNotification(req, "")
 	stage := strings.TrimSpace(req.Stage)
 	if stage == "" {
 		stage = "(unknown)"
 	}
-	title := "Subtask reply ready"
+	fmt.Printf("Queued Subtask reply for lead %s: %s (%s). Use `subtask show %s`.\n", req.Binding.Lead, req.Task, stage, req.Task)
+	return nil
+}
+
+func sendCodexBridgeDesktopNotification(req codexBridgeResumeRequest, titleOverride string) {
+	if !desktopNotificationsEnabled() {
+		return
+	}
+	stage := strings.TrimSpace(req.Stage)
+	if stage == "" {
+		stage = "(unknown)"
+	}
+	title := "Subtask worker replied"
 	if req.Event.Data.Outcome == "error" {
 		title = "Subtask worker error"
 	}
-	message := fmt.Sprintf("%s -> %s (%s). Open the bound Codex lead and run: subtask show %s", req.Task, req.Binding.Lead, stage, req.Task)
+	if strings.TrimSpace(titleOverride) != "" {
+		title = titleOverride
+	}
+	parts := []string{
+		fmt.Sprintf("%s -> %s (%s)", req.Task, req.Binding.Lead, stage),
+	}
+	if req.Event.Data.DurationMS > 0 {
+		parts = append(parts, (time.Duration(req.Event.Data.DurationMS) * time.Millisecond).Round(time.Millisecond).String())
+	}
+	if req.Event.Data.ToolCalls > 0 {
+		parts = append(parts, fmt.Sprintf("%d tool calls", req.Event.Data.ToolCalls))
+	}
 	if errText := firstNonEmpty(req.Event.Data.ErrorMessage, req.Event.Data.Error); errText != "" {
-		message += " - " + errText
+		parts = append(parts, errText)
 	}
-	if desktopNotificationsEnabled() {
-		if err := sendDesktopNotification(title, message, "subtask-codex-bridge-"+safeNotificationGroup(req.Binding.Lead)); err != nil {
-			return err
-		}
+	group := "subtask-codex-bridge-" + safeNotificationGroup(req.Binding.Lead) + "-" + safeNotificationGroup(req.Task) + "-" + safeNotificationGroup(req.Event.Key)
+	if err := sendDesktopNotification(title, strings.Join(parts, " - "), group); err != nil {
+		fmt.Fprintf(os.Stderr, "subtask: warning: desktop notification failed for %s: %v\n", req.Task, err)
 	}
-	fmt.Printf("Queued Subtask reply for lead %s: %s (%s). Use `subtask show %s`.\n", req.Binding.Lead, req.Task, stage, req.Task)
-	return nil
 }
 
 func buildCodexBridgePrompt(req codexBridgeResumeRequest) string {
@@ -619,14 +666,34 @@ func saveCodexBridgeDeliveries(deliveries *codexBridgeDeliveries) error {
 }
 
 func writeCodexBridgeJSON(path string, v any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func sortCodexBindings(bindings []codexLeadBinding) {
@@ -676,6 +743,26 @@ func withCodexLeadLock(lead string, fn func() error) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func withCodexBridgeStoreLock(fn func() error) error {
+	path := filepath.Join(codexBridgeDir(), "store.lock")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return err
+	}
+	if err := filelock.LockExclusive(f); err != nil {
+		_ = f.Close()
+		return err
+	}
+	defer func() {
+		_ = filelock.Unlock(f)
+		_ = f.Close()
+	}()
+	return fn()
 }
 
 func printCodexBridgeBindings(state *codexBridgeState) {
