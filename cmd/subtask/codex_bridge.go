@@ -25,7 +25,6 @@ type CodexBridgeCmd struct {
 	Bind   CodexBridgeBindCmd   `cmd:"" help:"Bind tasks or task prefixes to a Codex lead session"`
 	Unbind CodexBridgeUnbindCmd `cmd:"" help:"Remove Codex lead bindings"`
 	List   CodexBridgeListCmd   `cmd:"" help:"List Codex lead bindings"`
-	Ping   CodexBridgePingCmd   `cmd:"" help:"Inject a diagnostic wakeup into a visible Codex lead terminal"`
 	Status CodexBridgeStatusCmd `cmd:"" help:"Show Codex lead bridge status"`
 	Watch  CodexBridgeWatchCmd  `cmd:"" help:"Watch worker replies and notify or resume bound Codex leads"`
 }
@@ -35,8 +34,7 @@ type CodexBridgeBindCmd struct {
 	Session    string `help:"Codex session/thread id to resume" required:""`
 	Task       string `help:"Exact task name to bind"`
 	TaskPrefix string `name:"task-prefix" help:"Task name prefix to bind"`
-	Delivery   string `help:"Delivery mode: notify, exec-resume, or terminal-inject" default:"notify"`
-	TTY        string `name:"tty" help:"TTY path for terminal-inject delivery; auto-detects the visible codex resume session when omitted"`
+	Delivery   string `help:"Delivery mode: notify or exec-resume" default:"notify"`
 	FromNow    bool   `name:"from-now" help:"Do not deliver worker replies that already existed before this binding"`
 }
 
@@ -49,13 +47,6 @@ type CodexBridgeUnbindCmd struct {
 type CodexBridgeListCmd struct{}
 
 type CodexBridgeStatusCmd struct{}
-
-type CodexBridgePingCmd struct {
-	Lead    string `help:"Lead name to ping"`
-	Session string `help:"Codex session/thread id to ping"`
-	TTY     string `name:"tty" help:"TTY path to inject into; auto-detects from session when omitted"`
-	Message string `help:"Message to inject" default:"Subtask bridge ping: visible Codex wakeup test. Reply briefly that the bridge ping arrived, then stop."`
-}
 
 type CodexBridgeWatchCmd struct {
 	Once bool          `help:"Run one delivery pass and exit"`
@@ -72,7 +63,6 @@ type codexLeadBinding struct {
 	Task       string    `json:"task,omitempty"`
 	TaskPrefix string    `json:"task_prefix,omitempty"`
 	Delivery   string    `json:"delivery,omitempty"`
-	TTY        string    `json:"tty,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -116,9 +106,8 @@ type codexBridgeActiveResume struct {
 var runCodexBridgeResume = runCodexBridgeResumeCommand
 
 const (
-	codexBridgeDeliveryNotify         = "notify"
-	codexBridgeDeliveryExecResume     = "exec-resume"
-	codexBridgeDeliveryTerminalInject = "terminal-inject"
+	codexBridgeDeliveryNotify     = "notify"
+	codexBridgeDeliveryExecResume = "exec-resume"
 )
 
 func (c *CodexBridgeBindCmd) Run() error {
@@ -178,8 +167,8 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 	if (taskName == "") == (prefix == "") {
 		return codexLeadBinding{}, fmt.Errorf("provide exactly one of --task or --task-prefix")
 	}
-	if !validCodexBridgeDelivery(delivery) {
-		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q, %q, or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject)
+	if delivery != codexBridgeDeliveryNotify && delivery != codexBridgeDeliveryExecResume {
+		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume)
 	}
 	now := time.Now().UTC()
 	return codexLeadBinding{
@@ -188,19 +177,9 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 		Task:       taskName,
 		TaskPrefix: prefix,
 		Delivery:   delivery,
-		TTY:        normalizeTTYPath(c.TTY),
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}, nil
-}
-
-func validCodexBridgeDelivery(delivery string) bool {
-	switch strings.TrimSpace(delivery) {
-	case codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume, codexBridgeDeliveryTerminalInject:
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *codexBridgeState) upsert(next codexLeadBinding) {
@@ -339,60 +318,6 @@ func (c *CodexBridgeStatusCmd) Run() error {
 		fmt.Printf("  %s -> %s (%s, %s, %s)\n", d.Task, d.Lead, d.Outcome, mode, d.RunID)
 	}
 	return nil
-}
-
-func (c *CodexBridgePingCmd) Run() error {
-	if _, err := preflightProject(); err != nil {
-		return err
-	}
-	binding, err := c.resolveBinding()
-	if err != nil {
-		return err
-	}
-	ttyPath, err := resolveCodexLeadTTY(binding)
-	if err != nil {
-		return err
-	}
-	message := strings.TrimSpace(c.Message)
-	if message == "" {
-		return fmt.Errorf("--message cannot be empty")
-	}
-	if err := injectTerminalInput(ttyPath, message+"\n"); err != nil {
-		return err
-	}
-	fmt.Printf("Injected Codex bridge ping into %s for lead %s (%s).\n", ttyPath, binding.Lead, binding.SessionID)
-	return nil
-}
-
-func (c *CodexBridgePingCmd) resolveBinding() (codexLeadBinding, error) {
-	session := strings.TrimSpace(c.Session)
-	lead := strings.TrimSpace(c.Lead)
-	ttyPath := normalizeTTYPath(c.TTY)
-	if session != "" {
-		return codexLeadBinding{
-			Lead:      firstNonEmpty(lead, "manual"),
-			SessionID: session,
-			Delivery:  codexBridgeDeliveryTerminalInject,
-			TTY:       ttyPath,
-		}, nil
-	}
-	if lead == "" {
-		return codexLeadBinding{}, fmt.Errorf("provide --lead or --session")
-	}
-	state, err := loadCodexBridgeState()
-	if err != nil {
-		return codexLeadBinding{}, err
-	}
-	for _, b := range state.Bindings {
-		if b.Lead != lead {
-			continue
-		}
-		if ttyPath != "" {
-			b.TTY = ttyPath
-		}
-		return b, nil
-	}
-	return codexLeadBinding{}, fmt.Errorf("lead %s is not bound", lead)
 }
 
 func (c *CodexBridgeWatchCmd) Run() error {
@@ -605,11 +530,8 @@ func (s codexBridgeState) resolve(taskName string) codexBridgeMatch {
 }
 
 func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeRequest) error {
-	switch req.Binding.deliveryMode() {
-	case codexBridgeDeliveryNotify:
+	if req.Binding.deliveryMode() == codexBridgeDeliveryNotify {
 		return runCodexBridgeNotifyDelivery(req)
-	case codexBridgeDeliveryTerminalInject:
-		return runCodexBridgeTerminalInjectDelivery(req)
 	}
 	cleanupActive, err := markCodexBridgeActiveResume(req, 10*time.Minute)
 	if err != nil {
@@ -645,20 +567,6 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 		}
 		return err
 	}
-	return nil
-}
-
-func runCodexBridgeTerminalInjectDelivery(req codexBridgeResumeRequest) error {
-	ttyPath, err := resolveCodexLeadTTY(req.Binding)
-	if err != nil {
-		return err
-	}
-	sendCodexBridgeDesktopNotification(req, "Waking visible Codex lead")
-	prompt := buildCodexBridgeTerminalPrompt(req)
-	if err := injectTerminalInput(ttyPath, prompt+"\n"); err != nil {
-		return err
-	}
-	fmt.Printf("Injected Subtask reply into %s for lead %s: %s.\n", ttyPath, req.Binding.Lead, req.Task)
 	return nil
 }
 
@@ -745,122 +653,6 @@ func buildCodexBridgePrompt(req codexBridgeResumeRequest) string {
 	fmt.Fprintf(&b, "- Do not merge automatically. Ask the user before running subtask merge.\n")
 	fmt.Fprintf(&b, "- Keep work scoped to this task and avoid touching unrelated leaders' tasks.\n")
 	return b.String()
-}
-
-func buildCodexBridgeTerminalPrompt(req codexBridgeResumeRequest) string {
-	stage := strings.TrimSpace(req.Stage)
-	if stage == "" {
-		stage = "(unknown)"
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Subtask worker %s: %s\n", firstNonEmpty(req.Event.Data.Outcome, "finished"), req.Task)
-	fmt.Fprintf(&b, "Stage: %s. Run ID: %s.\n", stage, req.Event.Key)
-	if req.Event.Data.DurationMS > 0 || req.Event.Data.ToolCalls > 0 {
-		fmt.Fprintf(&b, "Worker summary: ")
-		parts := []string{}
-		if req.Event.Data.DurationMS > 0 {
-			parts = append(parts, (time.Duration(req.Event.Data.DurationMS) * time.Millisecond).Round(time.Millisecond).String())
-		}
-		if req.Event.Data.ToolCalls > 0 {
-			parts = append(parts, fmt.Sprintf("%d tool calls", req.Event.Data.ToolCalls))
-		}
-		fmt.Fprintf(&b, "%s.\n", strings.Join(parts, ", "))
-	}
-	if errText := firstNonEmpty(req.Event.Data.ErrorMessage, req.Event.Data.Error); errText != "" {
-		fmt.Fprintf(&b, "Worker error: %s\n", errText)
-	}
-	fmt.Fprintf(&b, "You are the visible lead for this task. Review it now with `subtask show %s`, `subtask log %s`, and `subtask diff --stat %s`.\n", req.Task, req.Task, req.Task)
-	fmt.Fprintf(&b, "If it is a plan-stage reply, read PLAN.md and either request changes or move the same task to implement. If it is implement/review, inspect diff and tests before moving ready.\n")
-	fmt.Fprintf(&b, "Do not merge automatically; ask Mahir before `subtask merge`. Do one focused pass and stop.\n")
-	return b.String()
-}
-
-func resolveCodexLeadTTY(binding codexLeadBinding) (string, error) {
-	if ttyPath := normalizeTTYPath(binding.TTY); ttyPath != "" {
-		return ttyPath, nil
-	}
-	ttyPath, ok, err := detectCodexResumeTTY(binding.SessionID)
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		return "", fmt.Errorf("could not find a visible `codex resume %s` terminal; bind with --tty /dev/ttysXXX or reopen the visible Codex CLI session", binding.SessionID)
-	}
-	return ttyPath, nil
-}
-
-func detectCodexResumeTTY(sessionID string) (string, bool, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	if sessionID == "" {
-		return "", false, fmt.Errorf("session id is required")
-	}
-	out, err := exec.Command("ps", "-axo", "pid=,tty=,command=").Output()
-	if err != nil {
-		return "", false, err
-	}
-	return parseCodexResumeTTY(string(out), sessionID)
-}
-
-func parseCodexResumeTTY(psOutput, sessionID string) (string, bool, error) {
-	sessionID = strings.TrimSpace(sessionID)
-	for _, line := range strings.Split(psOutput, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 {
-			continue
-		}
-		ttyName := fields[1]
-		if ttyName == "" || ttyName == "??" || ttyName == "?" {
-			continue
-		}
-		cmdFields := fields[2:]
-		cmdText := strings.Join(cmdFields, " ")
-		if !strings.Contains(cmdText, "codex") || strings.Contains(cmdText, "codex exec") {
-			continue
-		}
-		if !visibleCodexResumeArgs(cmdFields, sessionID) {
-			continue
-		}
-		return normalizeTTYPath(ttyName), true, nil
-	}
-	return "", false, nil
-}
-
-func visibleCodexResumeArgs(args []string, sessionID string) bool {
-	for i, arg := range args {
-		base := filepath.Base(arg)
-		if base != "codex" && !strings.Contains(base, "codex") {
-			continue
-		}
-		if i+2 >= len(args) {
-			continue
-		}
-		if args[i+1] == "exec" {
-			continue
-		}
-		if args[i+1] == "resume" && args[i+2] == sessionID {
-			return true
-		}
-	}
-	for i, arg := range args {
-		if arg == "exec" {
-			return false
-		}
-		if arg == "resume" && i+1 < len(args) && args[i+1] == sessionID {
-			return strings.Contains(strings.Join(args[:i], " "), "codex")
-		}
-	}
-	return false
-}
-
-func normalizeTTYPath(ttyPath string) string {
-	ttyPath = strings.TrimSpace(ttyPath)
-	if ttyPath == "" || ttyPath == "??" || ttyPath == "?" {
-		return ""
-	}
-	if strings.HasPrefix(ttyPath, "/dev/") {
-		return ttyPath
-	}
-	return filepath.Join("/dev", ttyPath)
 }
 
 func codexBridgeDir() string {
@@ -1100,12 +892,6 @@ func printCodexBridgeBindings(state *codexBridgeState) {
 		if target == "" {
 			target = b.TaskPrefix + "*"
 		}
-		details := []string{b.SessionID, b.deliveryMode()}
-		if ttyPath := normalizeTTYPath(b.TTY); ttyPath != "" {
-			details = append(details, ttyPath)
-		} else if b.deliveryMode() == codexBridgeDeliveryTerminalInject {
-			details = append(details, "auto-tty")
-		}
-		fmt.Printf("  %s -> %s (%s)\n", target, b.Lead, strings.Join(details, ", "))
+		fmt.Printf("  %s -> %s (%s, %s)\n", target, b.Lead, b.SessionID, b.deliveryMode())
 	}
 }
