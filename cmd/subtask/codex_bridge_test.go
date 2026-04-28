@@ -73,6 +73,24 @@ func TestCodexBridgeDeliverOnce_DeduplicatesRun(t *testing.T) {
 	deliveries, err := loadCodexBridgeDeliveries()
 	require.NoError(t, err)
 	require.Contains(t, deliveries.Deliveries, codexDeliveryID(taskName, "run-1"))
+	require.Equal(t, codexBridgeDeliveryNotify, deliveries.Deliveries[codexDeliveryID(taskName, "run-1")].Mode)
+}
+
+func TestCodexBridgeBind_DefaultsToNotifyDelivery(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	cmd := CodexBridgeBindCmd{Lead: "lead-a", Session: "session-a", Task: "feature/notify"}
+	binding, err := cmd.binding()
+	require.NoError(t, err)
+	require.Equal(t, codexBridgeDeliveryNotify, binding.deliveryMode())
+}
+
+func TestCodexBridgeBind_RejectsUnknownDelivery(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	err := (&CodexBridgeBindCmd{Lead: "lead-a", Session: "session-a", Task: "feature/a", Delivery: "magic"}).Run()
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "--delivery")
 }
 
 func TestCodexBridgeBindFromNow_MarksExistingRepliesDelivered(t *testing.T) {
@@ -178,7 +196,7 @@ func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	taskName := "feature/fake-codex"
 	createBridgeFinishedTask(t, env, taskName, "plan", "run-fake")
-	require.NoError(t, (&CodexBridgeBindCmd{Lead: "lead-a", Session: "session-a", Task: taskName}).Run())
+	require.NoError(t, (&CodexBridgeBindCmd{Lead: "lead-a", Session: "session-a", Task: taskName, Delivery: codexBridgeDeliveryExecResume}).Run())
 
 	binDir := t.TempDir()
 	logPath := filepath.Join(t.TempDir(), "codex-args.log")

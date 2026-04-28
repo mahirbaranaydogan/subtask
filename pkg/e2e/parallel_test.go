@@ -208,6 +208,7 @@ type taskResult struct {
 
 func buildSubtask(t *testing.T) string {
 	t.Helper()
+	t.Setenv("SUBTASK_NOTIFY", "0")
 
 	// Find module root
 	_, thisFile, _, ok := runtime.Caller(0)

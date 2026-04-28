@@ -37,8 +37,8 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask interrupt <task>` | Gracefully stop a running worker |
 | `subtask log <task>` | Show task conversation and history |
 | `subtask trace <task>` | Debug what a worker is doing and thinking internally |
-| `subtask codex-bridge bind --lead <name> --session <id> --task-prefix <prefix>` | Route worker replies to a Codex lead session |
-| `subtask codex-bridge watch` | Watch worker replies and resume bound Codex leads |
+| `subtask codex-bridge bind --lead <name> --session <id> --task-prefix <prefix>` | Route worker replies to a Codex lead owner |
+| `subtask codex-bridge watch` | Watch worker replies and notify or resume bound Codex leads |
 
 **Tip:** Add `--follow-up <task>` on `draft` to carry forward conversation context from a prior task.
 
@@ -69,7 +69,7 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
 
-**Critical for Codex:** Desktop notifications do not wake a Codex lead thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead session first, then keep `subtask codex-bridge watch` running. The bridge resumes the bound lead with the finished task context. It never merges automatically.
+**Critical for Codex:** Desktop notifications do not wake a visible Codex CLI thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead owner first, then keep `subtask codex-bridge watch` running. The bridge defaults to safe `notify` delivery: it records the reply and sends a desktop notification without running hidden Codex work. `exec-resume` delivery is available only when explicitly selected and may run Codex in the background rather than the visible terminal. The bridge never merges automatically.
 
 ## Merging
 
@@ -126,13 +126,26 @@ subtask codex-bridge bind --lead pos-lead --session 019d... --task-prefix apps-p
 subtask codex-bridge watch
 ```
 
+Default delivery is `notify`. It is the safest mode for visible CLI workflows:
+
+```bash
+subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery notify --from-now
+```
+
+Use `--delivery exec-resume` only when you intentionally want the bridge to run `codex exec ... resume` in the background:
+
+```bash
+subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/ --delivery exec-resume --from-now
+```
+
 Routing rules:
 - Exact task bindings beat prefix bindings.
 - Longest matching prefix wins.
 - A worker reply is delivered once per run ID.
 - Multiple leads are supported, but each task should have one owner.
 - Use `--from-now` when binding an existing project so old replies do not wake the lead.
-- The bridge resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
+- `notify` delivery queues the reply for the owning lead and sends a desktop notification.
+- `exec-resume` delivery resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
 
 ## Notes
 

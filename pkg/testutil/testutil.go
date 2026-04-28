@@ -29,12 +29,19 @@ func NewTestEnv(t *testing.T, numWorkspaces int) *TestEnv {
 	t.Helper()
 
 	origSubtaskDir, hadSubtaskDir := os.LookupEnv("SUBTASK_DIR")
+	origNotify, hadNotify := os.LookupEnv("SUBTASK_NOTIFY")
 	requireSetEnv(t, "SUBTASK_DIR", t.TempDir())
+	requireSetEnv(t, "SUBTASK_NOTIFY", "0")
 	t.Cleanup(func() {
 		if hadSubtaskDir {
 			_ = os.Setenv("SUBTASK_DIR", origSubtaskDir)
 		} else {
 			_ = os.Unsetenv("SUBTASK_DIR")
+		}
+		if hadNotify {
+			_ = os.Setenv("SUBTASK_NOTIFY", origNotify)
+		} else {
+			_ = os.Unsetenv("SUBTASK_NOTIFY")
 		}
 	})
 

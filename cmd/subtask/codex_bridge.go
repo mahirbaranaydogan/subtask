@@ -26,7 +26,7 @@ type CodexBridgeCmd struct {
 	Unbind CodexBridgeUnbindCmd `cmd:"" help:"Remove Codex lead bindings"`
 	List   CodexBridgeListCmd   `cmd:"" help:"List Codex lead bindings"`
 	Status CodexBridgeStatusCmd `cmd:"" help:"Show Codex lead bridge status"`
-	Watch  CodexBridgeWatchCmd  `cmd:"" help:"Watch worker replies and resume bound Codex leads"`
+	Watch  CodexBridgeWatchCmd  `cmd:"" help:"Watch worker replies and notify or resume bound Codex leads"`
 }
 
 type CodexBridgeBindCmd struct {
@@ -34,6 +34,7 @@ type CodexBridgeBindCmd struct {
 	Session    string `help:"Codex session/thread id to resume" required:""`
 	Task       string `help:"Exact task name to bind"`
 	TaskPrefix string `name:"task-prefix" help:"Task name prefix to bind"`
+	Delivery   string `help:"Delivery mode: notify or exec-resume" default:"notify"`
 	FromNow    bool   `name:"from-now" help:"Do not deliver worker replies that already existed before this binding"`
 }
 
@@ -61,6 +62,7 @@ type codexLeadBinding struct {
 	SessionID  string    `json:"session_id"`
 	Task       string    `json:"task,omitempty"`
 	TaskPrefix string    `json:"task_prefix,omitempty"`
+	Delivery   string    `json:"delivery,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }
@@ -75,6 +77,7 @@ type codexBridgeDelivery struct {
 	Lead      string    `json:"lead"`
 	SessionID string    `json:"session_id"`
 	Outcome   string    `json:"outcome"`
+	Mode      string    `json:"mode,omitempty"`
 	Delivered time.Time `json:"delivered_at"`
 }
 
@@ -92,6 +95,11 @@ type codexBridgeResumeRequest struct {
 }
 
 var runCodexBridgeResume = runCodexBridgeResumeCommand
+
+const (
+	codexBridgeDeliveryNotify     = "notify"
+	codexBridgeDeliveryExecResume = "exec-resume"
+)
 
 func (c *CodexBridgeBindCmd) Run() error {
 	if _, err := preflightProject(); err != nil {
@@ -121,7 +129,7 @@ func (c *CodexBridgeBindCmd) Run() error {
 	if target == "" {
 		target = binding.TaskPrefix + "*"
 	}
-	fmt.Printf("Bound %s to lead %s (%s).\n", target, binding.Lead, binding.SessionID)
+	fmt.Printf("Bound %s to lead %s (%s) with %s delivery.\n", target, binding.Lead, binding.SessionID, binding.deliveryMode())
 	return nil
 }
 
@@ -130,6 +138,10 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 	session := strings.TrimSpace(c.Session)
 	taskName := strings.TrimSpace(c.Task)
 	prefix := strings.TrimSpace(c.TaskPrefix)
+	delivery := strings.TrimSpace(c.Delivery)
+	if delivery == "" {
+		delivery = codexBridgeDeliveryNotify
+	}
 	if lead == "" {
 		return codexLeadBinding{}, fmt.Errorf("--lead is required")
 	}
@@ -139,12 +151,16 @@ func (c *CodexBridgeBindCmd) binding() (codexLeadBinding, error) {
 	if (taskName == "") == (prefix == "") {
 		return codexLeadBinding{}, fmt.Errorf("provide exactly one of --task or --task-prefix")
 	}
+	if delivery != codexBridgeDeliveryNotify && delivery != codexBridgeDeliveryExecResume {
+		return codexLeadBinding{}, fmt.Errorf("--delivery must be %q or %q", codexBridgeDeliveryNotify, codexBridgeDeliveryExecResume)
+	}
 	now := time.Now().UTC()
 	return codexLeadBinding{
 		Lead:       lead,
 		SessionID:  session,
 		Task:       taskName,
 		TaskPrefix: prefix,
+		Delivery:   delivery,
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}, nil
@@ -188,6 +204,14 @@ func (s *codexBridgeState) conflict(next codexLeadBinding) error {
 
 func (b codexLeadBinding) sameTarget(other codexLeadBinding) bool {
 	return b.Task == other.Task && b.TaskPrefix == other.TaskPrefix
+}
+
+func (b codexLeadBinding) deliveryMode() string {
+	delivery := strings.TrimSpace(b.Delivery)
+	if delivery == "" {
+		return codexBridgeDeliveryNotify
+	}
+	return delivery
 }
 
 func (c *CodexBridgeUnbindCmd) Run() error {
@@ -269,7 +293,11 @@ func (c *CodexBridgeStatusCmd) Run() error {
 	sort.Strings(keys)
 	for _, k := range keys {
 		d := deliveries.Deliveries[k]
-		fmt.Printf("  %s -> %s (%s, %s)\n", d.Task, d.Lead, d.Outcome, d.RunID)
+		mode := strings.TrimSpace(d.Mode)
+		if mode == "" {
+			mode = codexBridgeDeliveryNotify
+		}
+		fmt.Printf("  %s -> %s (%s, %s, %s)\n", d.Task, d.Lead, d.Outcome, mode, d.RunID)
 	}
 	return nil
 }
@@ -288,7 +316,7 @@ func (c *CodexBridgeWatchCmd) Run() error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Delivered %d Codex lead resume(s).\n", count)
+		fmt.Printf("Handled %d Codex bridge event(s).\n", count)
 		return nil
 	}
 
@@ -363,6 +391,7 @@ func codexBridgeDeliverOnce(ctx context.Context, repoRoot string) (int, error) {
 			Lead:      match.Binding.Lead,
 			SessionID: match.Binding.SessionID,
 			Outcome:   ev.Data.Outcome,
+			Mode:      match.Binding.deliveryMode(),
 			Delivered: time.Now().UTC(),
 		}
 		if err := saveCodexBridgeDeliveries(deliveries); err != nil {
@@ -398,6 +427,7 @@ func markExistingFinishedEventsDelivered(binding codexLeadBinding) error {
 			Lead:      binding.Lead,
 			SessionID: binding.SessionID,
 			Outcome:   ev.Data.Outcome,
+			Mode:      binding.deliveryMode(),
 			Delivered: now,
 		}
 		marked = true
@@ -441,6 +471,9 @@ func (s codexBridgeState) resolve(taskName string) codexBridgeMatch {
 }
 
 func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeRequest) error {
+	if req.Binding.deliveryMode() == codexBridgeDeliveryNotify {
+		return runCodexBridgeNotifyDelivery(req)
+	}
 	prompt := buildCodexBridgePrompt(req)
 	args := []string{
 		"exec",
@@ -456,6 +489,28 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func runCodexBridgeNotifyDelivery(req codexBridgeResumeRequest) error {
+	stage := strings.TrimSpace(req.Stage)
+	if stage == "" {
+		stage = "(unknown)"
+	}
+	title := "Subtask reply ready"
+	if req.Event.Data.Outcome == "error" {
+		title = "Subtask worker error"
+	}
+	message := fmt.Sprintf("%s -> %s (%s). Open the bound Codex lead and run: subtask show %s", req.Task, req.Binding.Lead, stage, req.Task)
+	if errText := firstNonEmpty(req.Event.Data.ErrorMessage, req.Event.Data.Error); errText != "" {
+		message += " - " + errText
+	}
+	if desktopNotificationsEnabled() {
+		if err := sendDesktopNotification(title, message, "subtask-codex-bridge-"+safeNotificationGroup(req.Binding.Lead)); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("Queued Subtask reply for lead %s: %s (%s). Use `subtask show %s`.\n", req.Binding.Lead, req.Task, stage, req.Task)
+	return nil
 }
 
 func buildCodexBridgePrompt(req codexBridgeResumeRequest) string {
@@ -634,6 +689,6 @@ func printCodexBridgeBindings(state *codexBridgeState) {
 		if target == "" {
 			target = b.TaskPrefix + "*"
 		}
-		fmt.Printf("  %s -> %s (%s)\n", target, b.Lead, b.SessionID)
+		fmt.Printf("  %s -> %s (%s, %s)\n", target, b.Lead, b.SessionID, b.deliveryMode())
 	}
 }
