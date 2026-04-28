@@ -123,6 +123,20 @@ func TestCodexBridgeBind_AcceptsWarpLaunchDelivery(t *testing.T) {
 	require.Equal(t, codexBridgeDeliveryWarpLaunch, binding.deliveryMode())
 }
 
+func TestCodexBridgeBind_AcceptsGhosttyLaunchDelivery(t *testing.T) {
+	_ = testutil.NewTestEnv(t, 0)
+
+	cmd := CodexBridgeBindCmd{
+		Lead:     "lead-a",
+		Session:  "session-a",
+		Task:     "feature/visible",
+		Delivery: codexBridgeDeliveryGhosttyLaunch,
+	}
+	binding, err := cmd.binding()
+	require.NoError(t, err)
+	require.Equal(t, codexBridgeDeliveryGhosttyLaunch, binding.deliveryMode())
+}
+
 func TestCodexBridgeBindFromNow_MarksExistingRepliesDelivered(t *testing.T) {
 	env := testutil.NewTestEnv(t, 0)
 	taskName := "feature/from-now"
@@ -305,6 +319,28 @@ func TestCodexBridgeVisibleLaunchFiles_ReadPromptFromFile(t *testing.T) {
 	require.Contains(t, string(script), "codex resume 'session-a'")
 	require.Contains(t, string(script), "cat '"+promptPath+"'")
 	require.FileExists(t, scriptPath)
+}
+
+func TestCodexBridgePromptFile_ReadPromptFromFile(t *testing.T) {
+	env := testutil.NewTestEnv(t, 0)
+	req := codexBridgeResumeRequest{
+		RepoRoot: env.RootDir,
+		Task:     "feature/a",
+		Event: finishedEvent{
+			Task: "feature/a",
+			Key:  "run-1",
+			Data: workerFinishedData{Outcome: "replied"},
+		},
+		Binding: codexLeadBinding{Lead: "lead-a", SessionID: "session-a"},
+	}
+
+	promptPath, err := writeCodexBridgePromptFile(req, "hello ghostty", "ghostty-launches")
+	require.NoError(t, err)
+
+	prompt, err := os.ReadFile(promptPath)
+	require.NoError(t, err)
+	require.Equal(t, "hello ghostty\n", string(prompt))
+	require.Contains(t, promptPath, "ghostty-launches")
 }
 
 func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
