@@ -37,6 +37,8 @@ Prefer to delegate exploration, research and planning to workers as parts of the
 | `subtask interrupt <task>` | Gracefully stop a running worker |
 | `subtask log <task>` | Show task conversation and history |
 | `subtask trace <task>` | Debug what a worker is doing and thinking internally |
+| `subtask codex-bridge bind --lead <name> --session <id> --task-prefix <prefix>` | Route worker replies to a Codex lead session |
+| `subtask codex-bridge watch` | Watch worker replies and resume bound Codex leads |
 
 **Tip:** Add `--follow-up <task>` on `draft` to carry forward conversation context from a prior task.
 
@@ -67,7 +69,7 @@ subtask merge fix/bug -m "Fix race condition in worker pool"
 # Or if not merging: subtask close fix/bug
 ```
 
-**Critical for Codex:** `subtask send` may send a macOS notification when a worker finishes, but it does not automatically wake a Codex thread by itself. Keep the project watcher (`subtask notify --watch`) running for desktop notifications, and actively review replied tasks before advancing stages.
+**Critical for Codex:** Desktop notifications do not wake a Codex lead thread by themselves. For Codex-led Subtask work, bind tasks or task prefixes to the correct lead session first, then keep `subtask codex-bridge watch` running. The bridge resumes the bound lead with the finished task context. It never merges automatically.
 
 ## Merging
 
@@ -113,6 +115,23 @@ After the worker replies with the plan:
 3. Only after approving the plan, run `subtask stage <task> implement`.
 4. Then send the implementation prompt to the same task/worker context.
 5. Do not merge until the task reaches `ready`.
+
+## Codex Lead Bridge
+
+When using Codex as the lead, bind each task or task family to the Codex session that owns it:
+
+```bash
+subtask codex-bridge bind --lead backend-lead --session 019d... --task-prefix backend/
+subtask codex-bridge bind --lead pos-lead --session 019d... --task-prefix apps-pos/
+subtask codex-bridge watch
+```
+
+Routing rules:
+- Exact task bindings beat prefix bindings.
+- Longest matching prefix wins.
+- A worker reply is delivered once per run ID.
+- Multiple leads are supported, but each task should have one owner.
+- The bridge resumes the owning lead for review/stage/follow-up only; merge still needs user approval.
 
 ## Notes
 
