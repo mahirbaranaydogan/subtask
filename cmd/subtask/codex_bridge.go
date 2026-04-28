@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -407,14 +406,14 @@ func runCodexBridgeVisibleLaunchDelivery(req codexBridgeResumeRequest, prompt st
 	if prompt == "" {
 		prompt = buildCodexBridgeTerminalPrompt(req)
 	}
-	promptPath, launchPath, err := writeCodexBridgeWarpLaunchFiles(req, prompt)
+	promptPath, launchPath, scriptPath, err := writeCodexBridgeVisibleLaunchFiles(req, prompt)
 	if err != nil {
 		return err
 	}
-	if err := openWarpLaunchConfig(launchPath); err != nil {
+	if err := openVisibleLaunchScript(scriptPath); err != nil {
 		return err
 	}
-	fmt.Printf("Launched visible Warp wakeup for lead %s (%s) using %s and %s.\n", req.Binding.Lead, req.Binding.SessionID, launchPath, promptPath)
+	fmt.Printf("Launched visible Codex wakeup for lead %s (%s) using %s, %s, and %s.\n", req.Binding.Lead, req.Binding.SessionID, scriptPath, launchPath, promptPath)
 	return nil
 }
 
@@ -924,10 +923,10 @@ func normalizeTTYPath(ttyPath string) string {
 	return filepath.Join("/dev", ttyPath)
 }
 
-func writeCodexBridgeWarpLaunchFiles(req codexBridgeResumeRequest, prompt string) (string, string, error) {
+func writeCodexBridgeVisibleLaunchFiles(req codexBridgeResumeRequest, prompt string) (string, string, string, error) {
 	dir := filepath.Join(codexBridgeDir(), "warp-launches")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	name := safeNotificationGroup(req.Binding.Lead) + "-" + safeNotificationGroup(req.Event.Key)
 	if name == "-" {
@@ -935,8 +934,9 @@ func writeCodexBridgeWarpLaunchFiles(req codexBridgeResumeRequest, prompt string
 	}
 	promptPath := filepath.Join(dir, name+".txt")
 	launchPath := filepath.Join(dir, name+".yaml")
+	scriptPath := filepath.Join(dir, name+".command")
 	if err := os.WriteFile(promptPath, []byte(prompt+"\n"), 0o600); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	command := "codex resume " + shellSingleQuote(req.Binding.SessionID) + " \"$(cat " + shellSingleQuote(promptPath) + ")\""
 	var launch strings.Builder
@@ -951,27 +951,34 @@ func writeCodexBridgeWarpLaunchFiles(req codexBridgeResumeRequest, prompt string
 	fmt.Fprintf(&launch, "            - exec: %s\n", yamlString(command))
 	fmt.Fprintf(&launch, "        color: green\n")
 	if err := os.WriteFile(launchPath, []byte(launch.String()), 0o600); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return promptPath, launchPath, nil
+	var script strings.Builder
+	fmt.Fprintf(&script, "#!/bin/zsh\n")
+	fmt.Fprintf(&script, "set -e\n")
+	fmt.Fprintf(&script, "cd %s\n", shellSingleQuote(req.RepoRoot))
+	fmt.Fprintf(&script, "exec %s\n", command)
+	if err := os.WriteFile(scriptPath, []byte(script.String()), 0o700); err != nil {
+		return "", "", "", err
+	}
+	return promptPath, launchPath, scriptPath, nil
 }
 
-func openWarpLaunchConfig(launchPath string) error {
-	launchURL := "warp://launch/" + url.PathEscape(launchPath)
-	commands := []string{
-		launchURL,
-		launchPath,
+func openVisibleLaunchScript(scriptPath string) error {
+	commands := [][]string{
+		{"open", "-a", "Terminal", scriptPath},
+		{"open", scriptPath},
 	}
 	var errs []string
-	for _, target := range commands {
-		cmd := exec.Command("open", target)
+	for _, args := range commands {
+		cmd := exec.Command(args[0], args[1:]...)
 		if out, err := cmd.CombinedOutput(); err != nil {
-			errs = append(errs, fmt.Sprintf("open %s: %v %s", target, err, strings.TrimSpace(string(out))))
+			errs = append(errs, fmt.Sprintf("%s: %v %s", strings.Join(args, " "), err, strings.TrimSpace(string(out))))
 			continue
 		}
 		return nil
 	}
-	return fmt.Errorf("open visible Warp wakeup failed: %s", strings.Join(errs, "; "))
+	return fmt.Errorf("open visible Codex wakeup failed: %s", strings.Join(errs, "; "))
 }
 
 func yamlString(s string) string {
