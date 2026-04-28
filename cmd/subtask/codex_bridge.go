@@ -94,6 +94,15 @@ type codexBridgeResumeRequest struct {
 	Binding  codexLeadBinding
 }
 
+type codexBridgeActiveResume struct {
+	Lead      string    `json:"lead"`
+	SessionID string    `json:"session_id"`
+	Task      string    `json:"task"`
+	RunID     string    `json:"run_id"`
+	PID       int       `json:"pid"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
 var runCodexBridgeResume = runCodexBridgeResumeCommand
 
 const (
@@ -524,6 +533,11 @@ func runCodexBridgeResumeCommand(ctx context.Context, req codexBridgeResumeReque
 	if req.Binding.deliveryMode() == codexBridgeDeliveryNotify {
 		return runCodexBridgeNotifyDelivery(req)
 	}
+	cleanupActive, err := markCodexBridgeActiveResume(req, 10*time.Minute)
+	if err != nil {
+		return err
+	}
+	defer cleanupActive()
 	sendCodexBridgeDesktopNotification(req, "Waking Codex lead")
 	prompt := buildCodexBridgePrompt(req)
 	resumeCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
@@ -645,12 +659,73 @@ func codexBridgeDir() string {
 	return filepath.Join(task.InternalDir(), "codex-bridge")
 }
 
+func codexBridgeActiveResumeDir() string {
+	return filepath.Join(codexBridgeDir(), "active-resumes")
+}
+
 func codexBridgeBindingsPath() string {
 	return filepath.Join(codexBridgeDir(), "bindings.json")
 }
 
 func codexBridgeDeliveriesPath() string {
 	return filepath.Join(codexBridgeDir(), "deliveries.json")
+}
+
+func markCodexBridgeActiveResume(req codexBridgeResumeRequest, ttl time.Duration) (func(), error) {
+	dir := codexBridgeActiveResumeDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return func() {}, err
+	}
+	name := safeNotificationGroup(req.Binding.Lead) + "-" + safeNotificationGroup(req.Event.Key)
+	if name == "-" {
+		name = fmt.Sprintf("resume-%d", time.Now().UnixNano())
+	}
+	path := filepath.Join(dir, name+".json")
+	active := codexBridgeActiveResume{
+		Lead:      req.Binding.Lead,
+		SessionID: req.Binding.SessionID,
+		Task:      req.Task,
+		RunID:     req.Event.Key,
+		PID:       os.Getpid(),
+		ExpiresAt: time.Now().UTC().Add(ttl),
+	}
+	if err := writeCodexBridgeJSON(path, active); err != nil {
+		return func() {}, err
+	}
+	return func() { _ = os.Remove(path) }, nil
+}
+
+func codexBridgeActiveResumeBlocksMerge(now time.Time) bool {
+	entries, err := os.ReadDir(codexBridgeActiveResumeDir())
+	if err != nil {
+		return false
+	}
+	blocked := false
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(codexBridgeActiveResumeDir(), entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var active codexBridgeActiveResume
+		if err := json.Unmarshal(data, &active); err != nil {
+			if info, statErr := entry.Info(); statErr == nil && now.Sub(info.ModTime()) < 10*time.Minute {
+				blocked = true
+				continue
+			}
+			_ = os.Remove(path)
+			continue
+		}
+		if active.ExpiresAt.IsZero() || now.Before(active.ExpiresAt) {
+			blocked = true
+			continue
+		}
+		_ = os.Remove(path)
+	}
+	return blocked
 }
 
 func loadCodexBridgeState() (*codexBridgeState, error) {

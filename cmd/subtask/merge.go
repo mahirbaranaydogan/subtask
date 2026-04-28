@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strings"
+	"time"
 
 	"github.com/zippoxer/subtask/pkg/task"
 	"github.com/zippoxer/subtask/pkg/task/history"
@@ -47,8 +47,7 @@ func (c *MergeCmd) Run() error {
 }
 
 func bridgeNoMergeEnabled() bool {
-	v := strings.ToLower(strings.TrimSpace(os.Getenv("SUBTASK_BRIDGE_NO_MERGE")))
-	return v == "1" || v == "true" || v == "yes" || v == "on"
+	return truthyEnv("SUBTASK_BRIDGE_NO_MERGE") || codexBridgeActiveResumeBlocksMerge(time.Now().UTC())
 }
 
 func requireReadyToMerge(taskName string) error {

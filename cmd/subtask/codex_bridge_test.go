@@ -224,6 +224,26 @@ func TestCodexBridgeWatchOnce_InvokesCodexExecResume(t *testing.T) {
 	require.Contains(t, log, "Task: feature/fake-codex")
 }
 
+func TestCodexBridgeActiveResumeBlocksMergeUntilCleanup(t *testing.T) {
+	testutil.NewTestEnv(t, 0)
+	req := codexBridgeResumeRequest{
+		Task: "feature/active",
+		Event: finishedEvent{
+			Task: "feature/active",
+			Key:  "run-active",
+			Data: workerFinishedData{Outcome: "replied"},
+		},
+		Binding: codexLeadBinding{Lead: "lead-a", SessionID: "session-a"},
+	}
+
+	cleanup, err := markCodexBridgeActiveResume(req, time.Minute)
+	require.NoError(t, err)
+	require.True(t, codexBridgeActiveResumeBlocksMerge(time.Now().UTC()))
+
+	cleanup()
+	require.False(t, codexBridgeActiveResumeBlocksMerge(time.Now().UTC()))
+}
+
 func createBridgeFinishedTask(t *testing.T, env *testutil.TestEnv, taskName, stage, runID string) {
 	t.Helper()
 	env.CreateTask(taskName, "Bridge task", "main", "desc")
